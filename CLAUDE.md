@@ -14,7 +14,7 @@ Designed for teams that push directly to main across hundreds of internal GitLab
 # Setup (virtual env at .venv/)
 pip install -e ".[dev]"
 
-# Tests (85 tests, pytest + respx + pytest-mock)
+# Tests (88 tests, pytest + respx + pytest-mock)
 pytest                            # run all
 pytest tests/test_cli.py -v       # single file
 pytest -k "test_healthy" -v       # pattern match
@@ -77,15 +77,18 @@ check-commit flow:
 
 ## Hook Deployment
 
-### Global hooks (recommended for multi-repo teams)
+### Global hooks with opt-in (recommended for multi-repo teams)
 - `ai-review hook install --global` creates scripts at `~/.config/ai-code-review/hooks/`
-- Sets `git config --global core.hooksPath` → all repos use these hooks automatically
-- Disable for a single repo: `git config core.hooksPath .git/hooks`
+- Sets `git config --global core.hooksPath` → hooks are registered for all repos
+- **Opt-in mechanism**: hooks only activate in repos with a `.ai-review` marker file at repo root
+- Enable a repo: `touch /path/to/repo/.ai-review`
+- Disable a repo: `rm /path/to/repo/.ai-review`
+- Hook scripts use absolute path to `ai-review` executable (resolved at install time)
 - Uninstall: `ai-review hook uninstall --global`
 
 ### Per-repo hooks
 - `ai-review hook install pre-commit` / `commit-msg` writes to `.git/hooks/`
-- Only affects the current repository
+- Only affects the current repository, no opt-in check
 
 ### pre-commit framework
 - `.pre-commit-hooks.yaml` at project root provides two hooks for consumers
@@ -99,6 +102,8 @@ check-commit flow:
 - **Severity blocking**: `Severity.blocks` property — `critical`/`error` return True (block commit), `warning`/`info` return False.
 - **Prompt templates** in `prompts.py`: review prompt focuses on memory leaks, null pointer, race conditions, hardcoded secrets, buffer overflow. Explicitly excludes style/naming/refactoring suggestions.
 - **Non-interactive mode**: `--auto-accept` flag or `AI_REVIEW_AUTO_ACCEPT=1` env var skips interactive prompt in commit-msg hook, auto-accepts AI suggestion.
+- **Opt-in marker**: global hooks check for `.ai-review` file at repo root; repos without it are skipped entirely.
+- **File extension filter**: `review.include_extensions` config (default: `c,cpp,h,hpp,java`); only matching files are sent to LLM.
 
 ## Testing Conventions
 

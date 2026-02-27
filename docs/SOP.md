@@ -190,7 +190,9 @@ ai-review config set review include_extensions ""
 
 ### 場景 1：日常 Commit（自動觸發）
 
-安裝 global hooks 後，每次 `git commit` 會自動執行兩道檢查。無需額外操作。
+安裝 global hooks 並在 repo 中建立 `.ai-review` 標記檔後，每次 `git commit` 會自動執行兩道檢查。無需額外操作。
+
+**前提**：repo 根目錄已有 `.ai-review` 檔案（`touch .ai-review`）。
 
 #### 實例：修改 Camera HAL 並 commit
 
@@ -210,8 +212,12 @@ git commit -m "[CAM-456] fix null pointer crash when switching camera"
 ```
 git commit
   │
+  ├─ 檢查 .ai-review 標記檔
+  │   ✗ 不存在 → 跳過所有 hook，直接 commit
+  │   ✓ 存在 → 繼續執行
+  │
   ├─ [Hook 1] AI Code Review (pre-commit stage)
-  │   分析 CameraHal.cpp 的 diff...
+  │   分析 CameraHal.cpp 的 diff（只審查 c/cpp/h/hpp/java）...
   │
   │   情況 A — 無嚴重問題：
   │   ✅ Passed
@@ -337,21 +343,30 @@ ai-review check-commit /tmp/msg
 ```bash
 # 跳過所有 hooks（緊急修復時使用）
 git commit --no-verify -m "[HOTFIX-001] emergency fix for boot loop"
-
-# 只跳過 code review（保留 commit message 檢查）
-SKIP=ai-review-code git commit -m "[BSP-100] minor config change"
 ```
 
-### 場景 5：特定 Repo 停用 Hooks
+### 場景 5：啟用或停用特定 Repo
 
 ```bash
-# 在該 repo 內執行
-cd /path/to/repo-that-does-not-need-review
-git config core.hooksPath .git/hooks
+# 啟用 AI review（建立標記檔）
+cd /path/to/camera-hal
+touch .ai-review
 
-# 恢復
-git config --unset core.hooksPath
+# 停用 AI review（移除標記檔）
+rm .ai-review
+
+# 批次啟用多個 repo
+for repo in camera-hal kernel-bsp audio-driver; do
+    touch /path/to/repos/$repo/.ai-review
+done
+
+# 批次停用
+for repo in camera-hal kernel-bsp audio-driver; do
+    rm -f /path/to/repos/$repo/.ai-review
+done
 ```
+
+沒有 `.ai-review` 標記檔的 repo，hooks 會自動跳過，commit 行為與未安裝 ai-review 完全相同。
 
 ---
 
@@ -414,6 +429,18 @@ AI 只聚焦以下嚴重問題，**不會**報告程式碼風格或命名建議�
 
 ## 四、常見問題
 
+### Q: 安裝後所有 repo 都會被影響嗎？
+
+不會。Global hooks 採用 **opt-in 機制**，只有 repo 根目錄存在 `.ai-review` 檔案的 repo 才會觸發 AI review。沒有標記檔的 repo 完全不受影響，commit 行為與未安裝 ai-review 時相同。
+
+```bash
+# 啟用
+touch /path/to/repo/.ai-review
+
+# 停用
+rm /path/to/repo/.ai-review
+```
+
 ### Q: Ollama 服務沒啟動怎麼辦？
 
 ```bash
@@ -444,10 +471,13 @@ pip install --upgrade ai-code-review
 # 1. 移除 global hooks
 ai-review hook uninstall --global
 
-# 2. 移除套件
+# 2. 移除所有 repo 的標記檔
+find /path/to/repos -name ".ai-review" -delete
+
+# 3. 移除套件
 pip uninstall ai-code-review
 
-# 3. 移除設定檔（選用）
+# 4. 移除設定檔（選用）
 rm -rf ~/.config/ai-code-review
 ```
 
