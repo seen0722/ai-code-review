@@ -236,13 +236,21 @@ _HOOK_TYPES = ["pre-commit", "commit-msg"]
 def _generate_hook_scripts() -> dict[str, str]:
     """Generate hook scripts with the resolved ai-review path."""
     ai_review = _resolve_ai_review_path()
+    opt_in_check = """\
+# opt-in: only run in repos that have a .ai-review marker file
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ ! -f "$REPO_ROOT/.ai-review" ]; then
+    exit 0
+fi"""
     return {
         "pre-commit": f"""#!/usr/bin/env bash
 # Installed by ai-code-review
+{opt_in_check}
 {ai_review}
 """,
         "commit-msg": f"""#!/usr/bin/env bash
 # Installed by ai-code-review
+{opt_in_check}
 {ai_review} check-commit --auto-accept "$1"
 """,
     }
@@ -340,7 +348,8 @@ def _install_global_hooks() -> None:
     )
     console.print(f"\n[green]Global hooks installed.[/]")
     console.print(f"[dim]core.hooksPath → {_GLOBAL_HOOKS_DIR}[/]")
-    console.print("[dim]All repos will now use ai-review hooks automatically.[/]")
+    console.print("[dim]Hooks only activate in repos with a .ai-review marker file.[/]")
+    console.print("[dim]Enable a repo: touch /path/to/repo/.ai-review[/]")
 
 
 def _uninstall_global_hooks() -> None:

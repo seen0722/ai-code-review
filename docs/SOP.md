@@ -119,7 +119,8 @@ ai-review hook install --global
 
 Global hooks installed.
 core.hooksPath → /home/user/.config/ai-code-review/hooks
-All repos will now use ai-review hooks automatically.
+Hooks only activate in repos with a .ai-review marker file.
+Enable a repo: touch /path/to/repo/.ai-review
 ```
 
 驗證：
@@ -141,7 +142,29 @@ Current repo hooks:
   commit-msg: not installed
 ```
 
-### Step 4（選用）：調整審查副檔名
+### Step 4：在需要的 Repo 啟用 AI Review
+
+Global hooks 採用 **opt-in 機制** — 只有 repo 根目錄存在 `.ai-review` 標記檔的 repo 才會觸發 AI review，其他 repo 完全不受影響。
+
+```bash
+# 單一 repo 啟用
+cd /path/to/camera-hal
+touch .ai-review
+
+# 批次啟用多個 repo
+for repo in camera-hal kernel-bsp audio-driver display-drm; do
+    touch /path/to/repos/$repo/.ai-review
+done
+```
+
+驗證（在已啟用的 repo 中）：
+
+```bash
+cd /path/to/camera-hal
+ls .ai-review    # 檔案存在即啟用
+```
+
+### Step 5（選用）：調整審查副檔名
 
 預設只審查 `c, cpp, h, hpp, java`。如需調整：
 
@@ -158,6 +181,7 @@ ai-review config set review include_extensions ""
 - [ ] `ai-review --help` 正常顯示
 - [ ] `ai-review config get provider default` 顯示已設定的 provider
 - [ ] `ai-review hook status` 顯示 global hooks installed
+- [ ] 需要 AI review 的 repo 根目錄有 `.ai-review` 檔案
 - [ ] （Ollama 用戶）`ollama list` 顯示已下載的模型
 
 ---
@@ -455,14 +479,17 @@ ai-review config set provider default ollama
 ai-review config set ollama base_url "${OLLAMA_URL:-http://localhost:11434}"
 ai-review config set ollama model "${OLLAMA_MODEL:-llama3.1}"
 
-# 3. Enable global hooks
+# 3. Enable global hooks (opt-in mode)
 ai-review hook install --global
 
 echo ""
 echo "=== Setup Complete ==="
-echo "All repos will now have AI code review on every commit."
+echo "Global hooks installed (opt-in mode)."
+echo ""
+echo "Enable AI review for a repo:"
+echo "  touch /path/to/repo/.ai-review"
+echo ""
 echo "To skip once: git commit --no-verify"
-echo "To disable for a repo: git config core.hooksPath .git/hooks"
 ```
 
 使用方式：
@@ -473,4 +500,8 @@ bash setup-ai-review.sh
 
 # 指定共用 Ollama 伺服器
 OLLAMA_URL=http://192.168.1.100:11434 bash setup-ai-review.sh
+
+# 安裝後，在需要的 repo 啟用
+touch /path/to/camera-hal/.ai-review
+touch /path/to/kernel-bsp/.ai-review
 ```

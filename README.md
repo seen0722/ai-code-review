@@ -43,17 +43,30 @@ ai-review config set openai model gpt-4o
 
 ### 2. Enable hooks globally (recommended)
 
-One command enables AI review for **all** git repos on the machine:
+One command sets up global git hooks:
 
 ```bash
 ai-review hook install --global
 ```
 
-This creates hook scripts at `~/.config/ai-code-review/hooks/` and sets `git config --global core.hooksPath` to point there. Every `git commit` in any repo will now automatically:
+Then **opt-in** each repo that needs AI review:
+
+```bash
+cd /path/to/your-bsp-repo
+touch .ai-review
+```
+
+Only repos with a `.ai-review` marker file will trigger the hooks. Other repos are completely unaffected. Every `git commit` in opted-in repos will automatically:
 
 1. Run AI code review on staged changes (blocks on critical/error)
 2. Validate commit message format `[PROJECT-NUMBER] description`
 3. Suggest AI-powered grammar/clarity improvements (auto-accepted)
+
+Batch enable for multiple repos:
+
+```bash
+for repo in repo1 repo2 repo3; do touch /path/to/$repo/.ai-review; done
+```
 
 ### 3. Review code manually
 
