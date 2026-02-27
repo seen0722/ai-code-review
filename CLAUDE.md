@@ -4,52 +4,99 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI-powered code review CLI (`ai-review`) for Android BSP engineering teams. Python 3.10+, installed via pip, uses click for CLI, rich for terminal output.
+AI-powered code review CLI (`ai-review`) for Android BSP engineering teams. Catches serious defects before commit, enforces `[PROJECT-NUMBER] description` commit message format, and provides AI-powered commit message grammar/clarity improvement.
+
+Designed for teams that push directly to main across hundreds of internal GitLab repos. Supports local Ollama, enterprise internal LLM, and external OpenAI as backends.
 
 ## Commands
 
 ```bash
-# Setup
-pip install -e ".[dev]"          # install with dev dependencies (uses .venv/)
+# Setup (virtual env at .venv/)
+pip install -e ".[dev]"
 
-# Tests
-pytest                           # run all tests
-pytest tests/test_config.py -v   # run a single test file
-pytest -k "test_healthy" -v      # run tests matching a pattern
+# Tests (81 tests, pytest + respx + pytest-mock)
+pytest                            # run all
+pytest tests/test_cli.py -v       # single file
+pytest -k "test_healthy" -v       # pattern match
 
-# Run the CLI
-ai-review                        # review staged diff
-ai-review check-commit           # check commit message format
-ai-review config set <s> <k> <v> # set config value
-ai-review hook status             # show installed hooks
+# CLI usage
+ai-review                         # review staged diff (default: terminal output)
+ai-review --format json           # JSON output
+ai-review --format markdown       # Markdown output
+ai-review --provider ollama --model llama3.1  # override provider/model
+ai-review check-commit <file>     # validate + AI-improve commit message
+ai-review config set <section> <key> <value>
+ai-review config get <section> <key>
+ai-review hook install pre-commit  # install git hook (non-pre-commit-framework)
+ai-review hook install commit-msg
+ai-review hook uninstall pre-commit
+ai-review hook status
 ```
 
 ## Architecture
 
 ```
 src/ai_code_review/
-  cli.py           # click CLI entry point — main(), _build_provider(), subcommands
-  config.py        # Config class — reads/writes ~/.config/ai-code-review/config.toml
-  commit_check.py  # check_commit_message() — regex validation for [PROJECT-NUMBER] format
-  git.py           # get_staged_diff(), get_unstaged_diff(), get_commit_diff()
-  reviewer.py      # Reviewer — orchestrates LLM calls using prompts.py
-  prompts.py       # Android BSP-focused review prompt + commit message improvement prompt
-  formatters.py    # format_terminal(), format_markdown(), format_json()
+  cli.py           # click CLI: main group, _review(), check_commit(), config, hook subcommands
+  config.py        # Config class — TOML read/write at ~/.config/ai-code-review/config.toml
+  commit_check.py  # check_commit_message() — regex [A-Z]+-\d+ validation
+  git.py           # get_staged_diff(), get_unstaged_diff(), get_commit_diff(), GitError
+  reviewer.py      # Reviewer — orchestrates LLM provider calls with prompts
+  prompts.py       # Android BSP review prompt + commit message improvement prompt
+  formatters.py    # format_terminal() / format_markdown() / format_json()
   llm/
     base.py        # LLMProvider ABC, Severity enum, ReviewIssue, ReviewResult
-    ollama.py      # OllamaProvider — Ollama REST API (/api/chat)
-    openai.py      # OpenAIProvider — OpenAI SDK
-    enterprise.py  # EnterpriseProvider — configurable base URL + auth, OpenAI-compatible API
+    ollama.py      # OllamaProvider — Ollama REST API (/api/chat), httpx
+    openai.py      # OpenAIProvider — openai SDK
+    enterprise.py  # EnterpriseProvider — httpx, configurable base_url/api_path/auth
+```
+
+## Key Data Flow
+
+```
+CLI (cli.py)
+  → get_staged_diff() (git.py)
+  → _build_provider() selects OllamaProvider / OpenAIProvider / EnterpriseProvider
+  → Reviewer.review_diff() → provider.review_code(diff, prompt) → ReviewResult
+  → format_terminal/markdown/json(result) → output
+  → exit(1) if result.is_blocked (critical/error severity)
+
+check-commit flow:
+  → check_commit_message() regex validation (commit_check.py)
+  → if valid + file provided + provider configured + diff exists:
+    → Reviewer.improve_commit_message() → show suggestion
+    → interactive [A]ccept / [E]dit / [S]kip → update file if accepted
 ```
 
 ## Key Patterns
 
-- **Provider pattern**: All LLM backends implement `LLMProvider` ABC with `review_code()`, `improve_commit_msg()`, `health_check()`. Adding a new provider = one new file in `llm/`.
-- **Response parsing**: All providers parse LLM output as JSON arrays of `{"severity", "file", "line", "message"}`. The `_parse_review()` method handles markdown fences and malformed responses gracefully.
-- **Config resolution**: CLI flags > config.toml defaults > auto-detect. Tokens always from env vars.
-- **Severity blocking**: `critical`/`error` block commits; `warning`/`info` don't. Controlled by `Severity.blocks` property.
-- **Tests use mocks**: LLM providers are tested with `respx` (for httpx-based providers) and `unittest.mock` (for OpenAI SDK). No real API calls in tests.
+- **Provider pattern**: All LLM backends implement `LLMProvider` ABC (`review_code()`, `improve_commit_msg()`, `health_check()`). New provider = one new file in `llm/`.
+- **JSON response parsing**: All providers expect LLM to return `[{"severity", "file", "line", "message"}]`. `_parse_review()` handles markdown fences and malformed items gracefully.
+- **Config resolution order**: `--provider` CLI flag > `config.toml [provider].default` > auto-detect. API tokens always read from env vars (never in config files).
+- **Severity blocking**: `Severity.blocks` property — `critical`/`error` return True (block commit), `warning`/`info` return False.
+- **Prompt templates** in `prompts.py`: review prompt focuses on memory leaks, null pointer, race conditions, hardcoded secrets, buffer overflow. Explicitly excludes style/naming/refactoring suggestions.
 
-## pre-commit Integration
+## Testing Conventions
 
-`.pre-commit-hooks.yaml` at project root defines two hooks: `ai-review-commit-msg` (commit-msg stage) and `ai-review-code` (pre-commit stage). Consumer repos reference this via `.pre-commit-config.yaml`.
+- `respx` mocks HTTP for Ollama and Enterprise providers (httpx-based)
+- `unittest.mock` patches OpenAI SDK client
+- `click.testing.CliRunner` for CLI integration tests
+- `tmp_path` + real `git init` for git.py and hook tests
+- No real LLM API calls in any test
+
+## pre-commit Framework Integration
+
+`.pre-commit-hooks.yaml` at project root provides two hooks:
+- `ai-review-commit-msg` (commit-msg stage) — format check + AI improvement
+- `ai-review-code` (pre-commit stage) — AI code review
+
+Consumer repos add to `.pre-commit-config.yaml`:
+```yaml
+repos:
+  - repo: <this-repo-url>
+    rev: v0.1.0
+    hooks:
+      - id: ai-review-commit-msg
+      - id: ai-review-code
+        args: ["--provider", "ollama"]
+```
