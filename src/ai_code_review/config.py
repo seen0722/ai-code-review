@@ -14,6 +14,9 @@ import tomli_w
 _DEFAULT_CONFIG_DIR = Path.home() / ".config" / "ai-code-review"
 _CONFIG_FILENAME = "config.toml"
 
+# Default extensions to review (Android BSP: C/C++/Java)
+DEFAULT_INCLUDE_EXTENSIONS = "c,cpp,h,hpp,java"
+
 # Mapping of provider name to the config key that holds the env var name for its token.
 _TOKEN_ENV_KEYS: dict[str, str] = {
     "openai": "api_key_env",

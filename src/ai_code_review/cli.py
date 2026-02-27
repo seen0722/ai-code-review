@@ -8,7 +8,7 @@ import click
 from rich.console import Console
 
 from .commit_check import check_commit_message
-from .config import Config
+from .config import DEFAULT_INCLUDE_EXTENSIONS, Config
 from .formatters import format_json, format_markdown, format_terminal
 from .git import GitError, get_staged_diff
 from .llm.base import LLMProvider
@@ -80,14 +80,22 @@ def _review(ctx: click.Context) -> None:
     cli_model = ctx.obj["cli_model"]
     output_format = ctx.obj["output_format"]
 
+    ext_raw = config.get("review", "include_extensions")
+    if ext_raw is None:
+        ext_raw = DEFAULT_INCLUDE_EXTENSIONS
+    extensions = [e.strip() for e in ext_raw.split(",") if e.strip()] if ext_raw else None
+
     try:
-        diff = get_staged_diff()
+        diff = get_staged_diff(extensions=extensions)
     except GitError as e:
         console.print(f"[bold red]{e}[/]")
         sys.exit(1)
 
     if not diff:
-        console.print("[dim]No staged changes to review.[/]")
+        if extensions:
+            console.print(f"[dim]No staged changes matching {', '.join(f'.{e}' for e in extensions)}.[/]")
+        else:
+            console.print("[dim]No staged changes to review.[/]")
         return
 
     provider = _build_provider(config, cli_provider, cli_model)
@@ -201,40 +209,151 @@ def config_get(section: str, key: str) -> None:
 
 # --- Hook management ---
 
-_HOOK_SCRIPT_TEMPLATE = """#!/bin/sh
+_GLOBAL_HOOKS_DIR = Path.home() / ".config" / "ai-code-review" / "hooks"
+
+_HOOK_SCRIPT_PRE_COMMIT = """#!/usr/bin/env bash
 # Installed by ai-code-review
-{command}
+if command -v ai-review &>/dev/null; then
+    ai-review
+fi
 """
 
-_HOOK_COMMANDS = {
-    "pre-commit": 'ai-review "$@"',
-    "commit-msg": 'ai-review check-commit "$1"',
+_HOOK_SCRIPT_COMMIT_MSG = """#!/usr/bin/env bash
+# Installed by ai-code-review
+if command -v ai-review &>/dev/null; then
+    ai-review check-commit --auto-accept "$1"
+fi
+"""
+
+_HOOK_SCRIPTS = {
+    "pre-commit": _HOOK_SCRIPT_PRE_COMMIT,
+    "commit-msg": _HOOK_SCRIPT_COMMIT_MSG,
 }
 
 
 @main.group("hook")
 def hook_group() -> None:
-    """Manage git hooks."""
+    """Manage git hooks (global or per-repo)."""
     pass
 
 
 @hook_group.command("install")
-@click.argument("hook_type", type=click.Choice(list(_HOOK_COMMANDS.keys())))
-def hook_install(hook_type: str) -> None:
-    """Install a git hook."""
-    hooks_dir = _get_hooks_dir()
-    hook_path = hooks_dir / hook_type
-    script = _HOOK_SCRIPT_TEMPLATE.format(command=_HOOK_COMMANDS[hook_type])
-    hook_path.write_text(script)
-    hook_path.chmod(0o755)
-    console.print(f"[green]Installed {hook_type} hook.[/]")
+@click.option("--global", "global_install", is_flag=True, help="Install globally via core.hooksPath (all repos).")
+@click.argument("hook_type", required=False, type=click.Choice(list(_HOOK_SCRIPTS.keys())))
+def hook_install(global_install: bool, hook_type: str | None) -> None:
+    """Install git hooks. Use --global to apply to all repos."""
+    if global_install:
+        _install_global_hooks()
+    elif hook_type:
+        _install_repo_hook(hook_type)
+    else:
+        console.print("[bold red]Specify a hook type or use --global.[/]")
+        sys.exit(1)
 
 
 @hook_group.command("uninstall")
-@click.argument("hook_type", type=click.Choice(list(_HOOK_COMMANDS.keys())))
-def hook_uninstall(hook_type: str) -> None:
-    """Uninstall a git hook."""
-    hooks_dir = _get_hooks_dir()
+@click.option("--global", "global_uninstall", is_flag=True, help="Remove global hooks and core.hooksPath.")
+@click.argument("hook_type", required=False, type=click.Choice(list(_HOOK_SCRIPTS.keys())))
+def hook_uninstall(global_uninstall: bool, hook_type: str | None) -> None:
+    """Uninstall git hooks."""
+    if global_uninstall:
+        _uninstall_global_hooks()
+    elif hook_type:
+        _uninstall_repo_hook(hook_type)
+    else:
+        console.print("[bold red]Specify a hook type or use --global.[/]")
+        sys.exit(1)
+
+
+@hook_group.command("status")
+def hook_status() -> None:
+    """Show installed hooks (global and current repo)."""
+    import subprocess
+
+    # Global hooks status
+    console.print("[bold]Global hooks:[/]")
+    try:
+        result = subprocess.run(
+            ["git", "config", "--global", "core.hooksPath"],
+            capture_output=True, text=True,
+        )
+        hooks_path = result.stdout.strip()
+        if hooks_path:
+            console.print(f"  core.hooksPath = {hooks_path}")
+            hooks_dir = Path(hooks_path)
+            for hook_type in _HOOK_SCRIPTS:
+                hook_path = hooks_dir / hook_type
+                if hook_path.exists() and "ai-review" in hook_path.read_text():
+                    console.print(f"  [green]{hook_type}: installed[/]")
+                else:
+                    console.print(f"  [dim]{hook_type}: not installed[/]")
+        else:
+            console.print("  [dim]not configured[/]")
+    except Exception:
+        console.print("  [dim]not configured[/]")
+
+    # Per-repo hooks status
+    console.print("\n[bold]Current repo hooks:[/]")
+    try:
+        hooks_dir = _get_repo_hooks_dir()
+        for hook_type in _HOOK_SCRIPTS:
+            hook_path = hooks_dir / hook_type
+            if hook_path.exists() and "ai-review" in hook_path.read_text():
+                console.print(f"  [green]{hook_type}: installed[/]")
+            else:
+                console.print(f"  [dim]{hook_type}: not installed[/]")
+    except SystemExit:
+        console.print("  [dim]not in a git repository[/]")
+
+
+def _install_global_hooks() -> None:
+    import subprocess
+
+    _GLOBAL_HOOKS_DIR.mkdir(parents=True, exist_ok=True)
+    for hook_type, script in _HOOK_SCRIPTS.items():
+        hook_path = _GLOBAL_HOOKS_DIR / hook_type
+        hook_path.write_text(script)
+        hook_path.chmod(0o755)
+        console.print(f"  [green]Created {hook_path}[/]")
+
+    subprocess.run(
+        ["git", "config", "--global", "core.hooksPath", str(_GLOBAL_HOOKS_DIR)],
+        check=True,
+    )
+    console.print(f"\n[green]Global hooks installed.[/]")
+    console.print(f"[dim]core.hooksPath → {_GLOBAL_HOOKS_DIR}[/]")
+    console.print("[dim]All repos will now use ai-review hooks automatically.[/]")
+
+
+def _uninstall_global_hooks() -> None:
+    import subprocess
+
+    for hook_type in _HOOK_SCRIPTS:
+        hook_path = _GLOBAL_HOOKS_DIR / hook_type
+        if hook_path.exists():
+            hook_path.unlink()
+            console.print(f"  [green]Removed {hook_path}[/]")
+
+    try:
+        subprocess.run(
+            ["git", "config", "--global", "--unset", "core.hooksPath"],
+            check=True, capture_output=True,
+        )
+        console.print("[green]Global hooks uninstalled (core.hooksPath cleared).[/]")
+    except subprocess.CalledProcessError:
+        console.print("[dim]core.hooksPath was not set.[/]")
+
+
+def _install_repo_hook(hook_type: str) -> None:
+    hooks_dir = _get_repo_hooks_dir()
+    hook_path = hooks_dir / hook_type
+    hook_path.write_text(_HOOK_SCRIPTS[hook_type])
+    hook_path.chmod(0o755)
+    console.print(f"[green]Installed {hook_type} hook in current repo.[/]")
+
+
+def _uninstall_repo_hook(hook_type: str) -> None:
+    hooks_dir = _get_repo_hooks_dir()
     hook_path = hooks_dir / hook_type
     if hook_path.exists():
         hook_path.unlink()
@@ -243,19 +362,7 @@ def hook_uninstall(hook_type: str) -> None:
         console.print(f"[dim]{hook_type} hook is not installed.[/]")
 
 
-@hook_group.command("status")
-def hook_status() -> None:
-    """Show installed hooks."""
-    hooks_dir = _get_hooks_dir()
-    for hook_type in _HOOK_COMMANDS:
-        hook_path = hooks_dir / hook_type
-        if hook_path.exists() and "ai-review" in hook_path.read_text():
-            console.print(f"  [green]{hook_type}: installed[/]")
-        else:
-            console.print(f"  [dim]{hook_type}: not installed[/]")
-
-
-def _get_hooks_dir() -> Path:
+def _get_repo_hooks_dir() -> Path:
     try:
         from .git import _run_git
         git_dir = _run_git("rev-parse", "--git-dir").strip()

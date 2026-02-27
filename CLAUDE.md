@@ -14,7 +14,7 @@ Designed for teams that push directly to main across hundreds of internal GitLab
 # Setup (virtual env at .venv/)
 pip install -e ".[dev]"
 
-# Tests (81 tests, pytest + respx + pytest-mock)
+# Tests (85 tests, pytest + respx + pytest-mock)
 pytest                            # run all
 pytest tests/test_cli.py -v       # single file
 pytest -k "test_healthy" -v       # pattern match
@@ -25,12 +25,18 @@ ai-review --format json           # JSON output
 ai-review --format markdown       # Markdown output
 ai-review --provider ollama --model llama3.1  # override provider/model
 ai-review check-commit <file>     # validate + AI-improve commit message
+ai-review check-commit --auto-accept <file>   # auto-accept AI suggestion (non-interactive)
 ai-review config set <section> <key> <value>
 ai-review config get <section> <key>
-ai-review hook install pre-commit  # install git hook (non-pre-commit-framework)
-ai-review hook install commit-msg
+
+# Hook management
+ai-review hook install --global    # global hooks for ALL repos (recommended)
+ai-review hook uninstall --global  # remove global hooks
+ai-review hook install pre-commit  # per-repo hook
+ai-review hook install commit-msg  # per-repo hook
 ai-review hook uninstall pre-commit
-ai-review hook status
+ai-review hook uninstall commit-msg
+ai-review hook status              # show global + per-repo hook status
 ```
 
 ## Architecture
@@ -65,8 +71,25 @@ check-commit flow:
   → check_commit_message() regex validation (commit_check.py)
   → if valid + file provided + provider configured + diff exists:
     → Reviewer.improve_commit_message() → show suggestion
+    → --auto-accept or AI_REVIEW_AUTO_ACCEPT=1: auto-accept
     → interactive [A]ccept / [E]dit / [S]kip → update file if accepted
 ```
+
+## Hook Deployment
+
+### Global hooks (recommended for multi-repo teams)
+- `ai-review hook install --global` creates scripts at `~/.config/ai-code-review/hooks/`
+- Sets `git config --global core.hooksPath` → all repos use these hooks automatically
+- Disable for a single repo: `git config core.hooksPath .git/hooks`
+- Uninstall: `ai-review hook uninstall --global`
+
+### Per-repo hooks
+- `ai-review hook install pre-commit` / `commit-msg` writes to `.git/hooks/`
+- Only affects the current repository
+
+### pre-commit framework
+- `.pre-commit-hooks.yaml` at project root provides two hooks for consumers
+- `ai-review-commit-msg` (commit-msg stage) and `ai-review-code` (pre-commit stage)
 
 ## Key Patterns
 
@@ -75,6 +98,7 @@ check-commit flow:
 - **Config resolution order**: `--provider` CLI flag > `config.toml [provider].default` > auto-detect. API tokens always read from env vars (never in config files).
 - **Severity blocking**: `Severity.blocks` property — `critical`/`error` return True (block commit), `warning`/`info` return False.
 - **Prompt templates** in `prompts.py`: review prompt focuses on memory leaks, null pointer, race conditions, hardcoded secrets, buffer overflow. Explicitly excludes style/naming/refactoring suggestions.
+- **Non-interactive mode**: `--auto-accept` flag or `AI_REVIEW_AUTO_ACCEPT=1` env var skips interactive prompt in commit-msg hook, auto-accepts AI suggestion.
 
 ## Testing Conventions
 
@@ -82,21 +106,5 @@ check-commit flow:
 - `unittest.mock` patches OpenAI SDK client
 - `click.testing.CliRunner` for CLI integration tests
 - `tmp_path` + real `git init` for git.py and hook tests
+- Global hook tests mock `subprocess.run` and `_GLOBAL_HOOKS_DIR`
 - No real LLM API calls in any test
-
-## pre-commit Framework Integration
-
-`.pre-commit-hooks.yaml` at project root provides two hooks:
-- `ai-review-commit-msg` (commit-msg stage) — format check + AI improvement
-- `ai-review-code` (pre-commit stage) — AI code review
-
-Consumer repos add to `.pre-commit-config.yaml`:
-```yaml
-repos:
-  - repo: <this-repo-url>
-    rev: v0.1.0
-    hooks:
-      - id: ai-review-commit-msg
-      - id: ai-review-code
-        args: ["--provider", "ollama"]
-```

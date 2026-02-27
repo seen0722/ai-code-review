@@ -22,8 +22,12 @@ def _run_git(*args: str) -> str:
     return result.stdout
 
 
-def get_staged_diff() -> str:
-    return _run_git("diff", "--cached").strip()
+def get_staged_diff(extensions: list[str] | None = None) -> str:
+    args = ["diff", "--cached"]
+    if extensions:
+        args.append("--")
+        args.extend(f"*.{ext.lstrip('.')}" for ext in extensions)
+    return _run_git(*args).strip()
 
 
 def get_unstaged_diff() -> str:

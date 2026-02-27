@@ -30,6 +30,30 @@ class TestStagedDiff:
         diff = get_staged_diff()
         assert diff == ""
 
+    def test_filters_by_extensions(self, git_repo):
+        (git_repo / "main.c").write_text("int main() {}")
+        (git_repo / "config.yaml").write_text("key: value")
+        (git_repo / "util.h").write_text("void util();")
+        subprocess.run(["git", "add", "."], cwd=git_repo, check=True, capture_output=True)
+        diff = get_staged_diff(extensions=["c", "h"])
+        assert "main.c" in diff
+        assert "util.h" in diff
+        assert "config.yaml" not in diff
+
+    def test_extensions_empty_returns_all(self, git_repo):
+        (git_repo / "main.c").write_text("int main() {}")
+        (git_repo / "config.yaml").write_text("key: value")
+        subprocess.run(["git", "add", "."], cwd=git_repo, check=True, capture_output=True)
+        diff = get_staged_diff(extensions=None)
+        assert "main.c" in diff
+        assert "config.yaml" in diff
+
+    def test_extensions_no_match_returns_empty(self, git_repo):
+        (git_repo / "config.yaml").write_text("key: value")
+        subprocess.run(["git", "add", "."], cwd=git_repo, check=True, capture_output=True)
+        diff = get_staged_diff(extensions=["c", "cpp"])
+        assert diff == ""
+
 
 class TestUnstagedDiff:
     def test_returns_unstaged_changes(self, git_repo):

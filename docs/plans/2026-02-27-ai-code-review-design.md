@@ -9,7 +9,7 @@ A Python CLI tool (`ai-review`) that provides AI-powered code review and commit 
 - Catch serious code defects (memory leaks, race conditions, null pointers, hardcoded secrets) before commit
 - Enforce unified commit message format: `[PROJECT-NUMBER] description`
 - AI-assisted English grammar correction and description improvement for commit messages
-- Zero workflow disruption — integrates via pre-commit framework
+- Zero workflow disruption — global git hooks (one command for all repos) or per-repo hooks
 - Support multiple LLM backends: local Ollama, enterprise LLM, external OpenAI
 
 ## Non-Goals (v1)
@@ -38,10 +38,15 @@ ai-review check-commit
 ai-review config set provider ollama
 ai-review config set ollama.base_url http://localhost:11434
 
-# Hook management (for users not using pre-commit framework)
-ai-review hook install pre-commit
-ai-review hook uninstall pre-commit
+# Hook management — global (recommended for multi-repo teams)
+ai-review hook install --global     # all repos, one command
+ai-review hook uninstall --global
 ai-review hook status
+
+# Hook management — per-repo
+ai-review hook install pre-commit
+ai-review hook install commit-msg
+ai-review hook uninstall pre-commit
 ```
 
 ## Pre-commit Flow
@@ -209,30 +214,37 @@ ai-code-review/
 | Testing | pytest | Standard |
 | Packaging | hatchling | Modern Python packaging with pyproject.toml |
 
-## pre-commit Framework Integration
+## Hook Deployment Strategies
 
-```yaml
-# .pre-commit-hooks.yaml (provided by this repo)
-- id: ai-review-commit-msg
-  name: Check commit message format
-  entry: ai-review check-commit
-  language: python
-  stages: [commit-msg]
-  always_run: true
+### Strategy A: Global Git Hooks (recommended for multi-repo teams)
 
-- id: ai-review-code
-  name: AI Code Review
-  entry: ai-review
-  language: python
-  stages: [pre-commit]
-  pass_filenames: false
+One command enables AI review for all repos on the machine:
+
+```bash
+ai-review hook install --global
 ```
 
-Consumer repos add to their `.pre-commit-config.yaml`:
+This creates hook scripts at `~/.config/ai-code-review/hooks/` and sets
+`git config --global core.hooksPath` to point there. No per-repo setup needed.
+
+- Disable for a single repo: `git config core.hooksPath .git/hooks`
+- Skip once: `git commit --no-verify`
+- Uninstall: `ai-review hook uninstall --global`
+
+### Strategy B: Per-repo hooks
+
+```bash
+ai-review hook install pre-commit
+ai-review hook install commit-msg
+```
+
+### Strategy C: pre-commit framework
+
+`.pre-commit-hooks.yaml` at project root provides hooks for pre-commit consumers:
 
 ```yaml
 repos:
-  - repo: https://gitlab.internal.company.com/devops/ai-code-review
+  - repo: https://github.com/seen0722/ai-code-review
     rev: v0.1.0
     hooks:
       - id: ai-review-commit-msg

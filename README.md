@@ -8,7 +8,7 @@ AI-powered code review CLI for Android BSP teams. Catches serious defects (memor
 - **Commit message enforcement** — Validates `[PROJECT-NUMBER] description` format
 - **AI commit message improvement** — Fixes English grammar and clarifies descriptions
 - **Multiple LLM backends** — Ollama (local), enterprise internal LLM, OpenAI
-- **pre-commit framework integration** — Zero-friction setup across hundreds of repos
+- **Global hooks** — One command to enable across all repos (ideal for hundreds of repos)
 - **Multiple output formats** — Terminal (colored), Markdown, JSON
 
 ## Installation
@@ -41,28 +41,74 @@ ai-review config set openai api_key_env OPENAI_API_KEY
 ai-review config set openai model gpt-4o
 ```
 
-### 2. Review code
+### 2. Enable hooks globally (recommended)
+
+One command enables AI review for **all** git repos on the machine:
+
+```bash
+ai-review hook install --global
+```
+
+This creates hook scripts at `~/.config/ai-code-review/hooks/` and sets `git config --global core.hooksPath` to point there. Every `git commit` in any repo will now automatically:
+
+1. Run AI code review on staged changes (blocks on critical/error)
+2. Validate commit message format `[PROJECT-NUMBER] description`
+3. Suggest AI-powered grammar/clarity improvements (auto-accepted)
+
+### 3. Review code manually
 
 ```bash
 git add -A
-ai-review
+ai-review                         # terminal output (default)
+ai-review --format markdown       # markdown report
+ai-review --format json           # structured JSON
 ```
 
-### 3. Output formats
+## Hook Setup
+
+### Global hooks (recommended for multi-repo teams)
 
 ```bash
-ai-review --format terminal    # default, colored output
-ai-review --format markdown    # markdown report
-ai-review --format json        # structured JSON
+# Install — enables hooks for ALL repos
+ai-review hook install --global
+
+# Check status
+ai-review hook status
+
+# Uninstall — removes hooks and restores default behavior
+ai-review hook uninstall --global
 ```
 
-## pre-commit Framework Integration
+**Managing exceptions:**
 
-Add to your `.pre-commit-config.yaml`:
+```bash
+# Disable for a single repo
+cd /path/to/repo
+git config core.hooksPath .git/hooks
+
+# Skip hooks for a single commit
+git commit --no-verify
+```
+
+### Per-repo hooks
+
+```bash
+# Install hooks for current repo only
+ai-review hook install pre-commit
+ai-review hook install commit-msg
+
+# Uninstall
+ai-review hook uninstall pre-commit
+ai-review hook uninstall commit-msg
+```
+
+### pre-commit framework
+
+If your team uses the [pre-commit](https://pre-commit.com) framework, add to `.pre-commit-config.yaml`:
 
 ```yaml
 repos:
-  - repo: https://gitlab.internal.company.com/devops/ai-code-review
+  - repo: https://github.com/seen0722/ai-code-review
     rev: v0.1.0
     hooks:
       - id: ai-review-commit-msg
@@ -70,20 +116,10 @@ repos:
         args: ["--provider", "ollama"]
 ```
 
-Then run:
+Then install:
 
 ```bash
 pre-commit install --hook-type pre-commit --hook-type commit-msg
-```
-
-## Manual Hook Installation
-
-For teams not using pre-commit framework:
-
-```bash
-ai-review hook install pre-commit
-ai-review hook install commit-msg
-ai-review hook status
 ```
 
 ## Commit Message Format
@@ -97,7 +133,7 @@ Examples:
 [AUD-012] resolve ALSA mixer channel switching issue
 ```
 
-When using the commit-msg hook, AI will also suggest grammar and clarity improvements interactively.
+When using the commit-msg hook, AI will suggest grammar and clarity improvements automatically.
 
 ## Configuration
 
