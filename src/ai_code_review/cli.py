@@ -103,19 +103,64 @@ def _review(ctx: click.Context) -> None:
 
 @main.command("check-commit")
 @click.argument("message_file", required=False)
-def check_commit(message_file: str | None) -> None:
-    """Check commit message format. Reads from file path (for git hook) or stdin."""
+@click.pass_context
+def check_commit(ctx: click.Context, message_file: str | None) -> None:
+    """Check commit message format and optionally improve with AI."""
     if message_file:
-        with open(message_file) as f:
-            message = f.read().strip()
+        msg_path = Path(message_file)
+        message = msg_path.read_text().strip()
     else:
         message = click.get_text_stream("stdin").readline().strip()
+        msg_path = None
 
+    # Step 1: Format check
     result = check_commit_message(message)
     if not result.valid:
         console.print(f"[bold red]{result.error}[/]")
         sys.exit(1)
     console.print("[green]Commit message format OK.[/]")
+
+    # Step 2: AI improvement (only when we have a file to update and a provider)
+    if msg_path is None:
+        return
+
+    try:
+        config = Config()
+        cli_provider = ctx.obj.get("cli_provider") if ctx.obj else None
+        cli_model = ctx.obj.get("cli_model") if ctx.obj else None
+        provider = _build_provider(config, cli_provider, cli_model)
+    except SystemExit:
+        # No provider configured — skip AI improvement silently
+        return
+
+    try:
+        diff = get_staged_diff()
+    except GitError:
+        diff = ""
+
+    if not diff:
+        return
+
+    reviewer = Reviewer(provider=provider)
+    improved = reviewer.improve_commit_message(message, diff)
+
+    if improved and improved.strip() != message:
+        console.print(f"\n[dim]Original:[/]  {message}")
+        console.print(f"[bold]Suggested:[/] {improved}")
+        choice = click.prompt(
+            "[A]ccept / [E]dit / [S]kip",
+            type=click.Choice(["a", "e", "s"], case_sensitive=False),
+            default="a",
+        )
+        if choice == "a":
+            msg_path.write_text(improved + "\n")
+            console.print("[green]Commit message updated.[/]")
+        elif choice == "e":
+            edited = click.edit(improved)
+            if edited:
+                msg_path.write_text(edited)
+                console.print("[green]Commit message updated.[/]")
+        # "s" → do nothing, keep original
 
 
 @main.group("config")
