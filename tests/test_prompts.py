@@ -1,0 +1,27 @@
+from ai_code_review.prompts import get_review_prompt, get_commit_improve_prompt
+
+
+class TestReviewPrompt:
+    def test_contains_bsp_focus_areas(self):
+        prompt = get_review_prompt()
+        assert "memory leak" in prompt.lower()
+        assert "null pointer" in prompt.lower()
+        assert "race condition" in prompt.lower()
+
+    def test_excludes_style_review(self):
+        prompt = get_review_prompt()
+        assert "naming" not in prompt.lower() or "do not" in prompt.lower()
+
+
+class TestCommitImprovePrompt:
+    def test_contains_grammar_instruction(self):
+        prompt = get_commit_improve_prompt("[BSP-1] fix bug", "diff content")
+        assert "grammar" in prompt.lower()
+
+    def test_contains_original_message(self):
+        prompt = get_commit_improve_prompt("[BSP-1] fix bug", "diff content")
+        assert "[BSP-1] fix bug" in prompt
+
+    def test_contains_diff(self):
+        prompt = get_commit_improve_prompt("[BSP-1] fix bug", "some diff here")
+        assert "some diff here" in prompt
