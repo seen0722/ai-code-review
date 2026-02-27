@@ -164,6 +164,52 @@ cd /path/to/camera-hal
 ls .ai-review    # 檔案存在即啟用
 ```
 
+#### `.ai-review` 標記檔的版本控制策略
+
+`.ai-review` 是空檔案，預設會被 git 追蹤。依據團隊需求選擇以下其中一種策略：
+
+| 策略 | 做法 | 適合場景 |
+|------|------|----------|
+| **團隊統一啟用** | 將 `.ai-review` checkin 到 repo | 所有成員 clone 後自動啟用，無需額外設定 |
+| **個人自行決定** | 將 `.ai-review` 加到 `.gitignore` | 每位開發者自行 `touch .ai-review` 決定是否啟用 |
+
+**策略 A：團隊統一啟用（推薦）**
+
+將 `.ai-review` 提交到 repo，所有成員 clone 後即自動生效：
+
+```bash
+cd /path/to/camera-hal
+touch .ai-review
+git add .ai-review
+git commit -m "[TOOL-001] enable AI code review for this repo"
+```
+
+批次操作：
+
+```bash
+for repo in camera-hal kernel-bsp audio-driver display-drm; do
+    cd /path/to/repos/$repo
+    touch .ai-review
+    git add .ai-review
+    git commit -m "[TOOL-001] enable AI code review for this repo"
+done
+```
+
+**策略 B：個人自行決定**
+
+不提交 `.ai-review`，改為加入 `.gitignore`，讓每位開發者自行決定：
+
+```bash
+# 專案管理者：將 .ai-review 加入 .gitignore
+echo ".ai-review" >> .gitignore
+git add .gitignore
+git commit -m "[TOOL-001] allow per-developer AI review opt-in"
+
+# 開發者：自行啟用
+cd /path/to/camera-hal
+touch .ai-review    # 只影響本機，不會被 commit
+```
+
 ### Step 5（選用）：調整審查副檔名
 
 預設只審查 `c, cpp, h, hpp, java`。如需調整：
