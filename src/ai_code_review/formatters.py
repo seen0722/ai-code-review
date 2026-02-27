@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 
 from rich.console import Console
@@ -22,33 +23,30 @@ _SEVERITY_STYLES = {
 
 
 def format_terminal(result: ReviewResult) -> str:
-    console = Console(record=True, force_terminal=True)
+    buf = io.StringIO()
+    console = Console(file=buf, force_terminal=False)
 
     if not result.issues:
-        console.print("\n[bold green]\u2705 No issues found — code looks clean![/]")
-        return console.export_text()
+        console.print("\u2705 No issues found — code looks clean!")
+        return buf.getvalue()
 
-    console.print(f"\n[bold]\U0001f50d AI Code Review — {len(result.issues)} issue(s) found[/]\n")
+    console.print(f"\U0001f50d AI Code Review — {len(result.issues)} issue(s) found\n")
     for issue in result.issues:
         icon = _SEVERITY_ICONS[issue.severity]
-        style = _SEVERITY_STYLES[issue.severity]
-        console.print(
-            f"  {icon} [{style}][{issue.severity.value}][/] "
-            f"[bold]{issue.file}:{issue.line}[/]"
-        )
+        console.print(f"  {icon} [{issue.severity.value}] {issue.file}:{issue.line}")
         console.print(f"     {issue.message}\n")
 
     summary = result.summary
     parts = [f"{count} {name}" for name, count in summary.items() if count > 0]
-    console.print(f"[dim]{'─' * 50}[/]")
+    console.print("─" * 50)
     console.print(f"Summary: {', '.join(parts)}")
 
     if result.is_blocked:
-        console.print("[bold red]\u274c Commit blocked (critical/error found)[/]")
+        console.print("\u274c Commit blocked (critical/error found)")
     else:
-        console.print("[bold green]\u2705 Commit allowed (warnings only)[/]")
+        console.print("\u2705 Commit allowed (warnings only)")
 
-    return console.export_text()
+    return buf.getvalue()
 
 
 def format_markdown(result: ReviewResult) -> str:
