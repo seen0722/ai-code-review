@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -103,8 +104,9 @@ def _review(ctx: click.Context) -> None:
 
 @main.command("check-commit")
 @click.argument("message_file", required=False)
+@click.option("--auto-accept", is_flag=True, help="Auto-accept AI suggestion without prompt.")
 @click.pass_context
-def check_commit(ctx: click.Context, message_file: str | None) -> None:
+def check_commit(ctx: click.Context, message_file: str | None, auto_accept: bool) -> None:
     """Check commit message format and optionally improve with AI."""
     if message_file:
         msg_path = Path(message_file)
@@ -147,11 +149,15 @@ def check_commit(ctx: click.Context, message_file: str | None) -> None:
     if improved and improved.strip() != message:
         console.print(f"\n[dim]Original:[/]  {message}")
         console.print(f"[bold]Suggested:[/] {improved}")
-        choice = click.prompt(
-            "[A]ccept / [E]dit / [S]kip",
-            type=click.Choice(["a", "e", "s"], case_sensitive=False),
-            default="a",
-        )
+        if auto_accept or os.environ.get("AI_REVIEW_AUTO_ACCEPT") == "1":
+            choice = "a"
+            console.print("[dim](non-interactive: auto-accept)[/]")
+        else:
+            choice = click.prompt(
+                "[A]ccept / [E]dit / [S]kip",
+                type=click.Choice(["a", "e", "s"], case_sensitive=False),
+                default="a",
+            )
         if choice == "a":
             msg_path.write_text(improved + "\n")
             console.print("[green]Commit message updated.[/]")

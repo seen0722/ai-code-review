@@ -1,0 +1,17 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ai-review-commit-msg
+        name: Check commit message format + AI improvement
+        entry: env AI_REVIEW_AUTO_ACCEPT=1 .venv/bin/ai-review check-commit
+        language: system
+        stages: [commit-msg]
+        always_run: true
+
+      - id: ai-review-code
+        name: AI Code Review
+        entry: .venv/bin/ai-review
+        language: system
+        stages: [pre-commit]
+        pass_filenames: false
+        always_run: true
