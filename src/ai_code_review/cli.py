@@ -146,3 +146,71 @@ def config_get(section: str, key: str) -> None:
         console.print(f"[dim]{section}.{key} is not set[/]")
     else:
         console.print(value)
+
+
+# --- Hook management ---
+
+_HOOK_SCRIPT_TEMPLATE = """#!/bin/sh
+# Installed by ai-code-review
+{command}
+"""
+
+_HOOK_COMMANDS = {
+    "pre-commit": 'ai-review "$@"',
+    "commit-msg": 'ai-review check-commit "$1"',
+}
+
+
+@main.group("hook")
+def hook_group() -> None:
+    """Manage git hooks."""
+    pass
+
+
+@hook_group.command("install")
+@click.argument("hook_type", type=click.Choice(list(_HOOK_COMMANDS.keys())))
+def hook_install(hook_type: str) -> None:
+    """Install a git hook."""
+    hooks_dir = _get_hooks_dir()
+    hook_path = hooks_dir / hook_type
+    script = _HOOK_SCRIPT_TEMPLATE.format(command=_HOOK_COMMANDS[hook_type])
+    hook_path.write_text(script)
+    hook_path.chmod(0o755)
+    console.print(f"[green]Installed {hook_type} hook.[/]")
+
+
+@hook_group.command("uninstall")
+@click.argument("hook_type", type=click.Choice(list(_HOOK_COMMANDS.keys())))
+def hook_uninstall(hook_type: str) -> None:
+    """Uninstall a git hook."""
+    hooks_dir = _get_hooks_dir()
+    hook_path = hooks_dir / hook_type
+    if hook_path.exists():
+        hook_path.unlink()
+        console.print(f"[green]Removed {hook_type} hook.[/]")
+    else:
+        console.print(f"[dim]{hook_type} hook is not installed.[/]")
+
+
+@hook_group.command("status")
+def hook_status() -> None:
+    """Show installed hooks."""
+    hooks_dir = _get_hooks_dir()
+    for hook_type in _HOOK_COMMANDS:
+        hook_path = hooks_dir / hook_type
+        if hook_path.exists() and "ai-review" in hook_path.read_text():
+            console.print(f"  [green]{hook_type}: installed[/]")
+        else:
+            console.print(f"  [dim]{hook_type}: not installed[/]")
+
+
+def _get_hooks_dir() -> Path:
+    try:
+        from .git import _run_git
+        git_dir = _run_git("rev-parse", "--git-dir").strip()
+        hooks_dir = Path(git_dir) / "hooks"
+        hooks_dir.mkdir(exist_ok=True)
+        return hooks_dir
+    except Exception:
+        console.print("[bold red]Not in a git repository.[/]")
+        sys.exit(1)
