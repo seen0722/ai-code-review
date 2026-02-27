@@ -211,24 +211,41 @@ def config_get(section: str, key: str) -> None:
 
 _GLOBAL_HOOKS_DIR = Path.home() / ".config" / "ai-code-review" / "hooks"
 
-_HOOK_SCRIPT_PRE_COMMIT = """#!/usr/bin/env bash
-# Installed by ai-code-review
-if command -v ai-review &>/dev/null; then
-    ai-review
-fi
-"""
 
-_HOOK_SCRIPT_COMMIT_MSG = """#!/usr/bin/env bash
-# Installed by ai-code-review
-if command -v ai-review &>/dev/null; then
-    ai-review check-commit --auto-accept "$1"
-fi
-"""
+def _resolve_ai_review_path() -> str:
+    """Find the absolute path to the ai-review executable."""
+    import shutil
 
-_HOOK_SCRIPTS = {
-    "pre-commit": _HOOK_SCRIPT_PRE_COMMIT,
-    "commit-msg": _HOOK_SCRIPT_COMMIT_MSG,
-}
+    # 1. Check if ai-review is in PATH
+    found = shutil.which("ai-review")
+    if found:
+        return found
+
+    # 2. Check relative to this Python interpreter (venv/bin/)
+    bin_dir = Path(sys.executable).parent
+    candidate = bin_dir / "ai-review"
+    if candidate.exists():
+        return str(candidate)
+
+    return "ai-review"
+
+
+_HOOK_TYPES = ["pre-commit", "commit-msg"]
+
+
+def _generate_hook_scripts() -> dict[str, str]:
+    """Generate hook scripts with the resolved ai-review path."""
+    ai_review = _resolve_ai_review_path()
+    return {
+        "pre-commit": f"""#!/usr/bin/env bash
+# Installed by ai-code-review
+{ai_review}
+""",
+        "commit-msg": f"""#!/usr/bin/env bash
+# Installed by ai-code-review
+{ai_review} check-commit --auto-accept "$1"
+""",
+    }
 
 
 @main.group("hook")
@@ -239,7 +256,7 @@ def hook_group() -> None:
 
 @hook_group.command("install")
 @click.option("--global", "global_install", is_flag=True, help="Install globally via core.hooksPath (all repos).")
-@click.argument("hook_type", required=False, type=click.Choice(list(_HOOK_SCRIPTS.keys())))
+@click.argument("hook_type", required=False, type=click.Choice(_HOOK_TYPES))
 def hook_install(global_install: bool, hook_type: str | None) -> None:
     """Install git hooks. Use --global to apply to all repos."""
     if global_install:
@@ -253,7 +270,7 @@ def hook_install(global_install: bool, hook_type: str | None) -> None:
 
 @hook_group.command("uninstall")
 @click.option("--global", "global_uninstall", is_flag=True, help="Remove global hooks and core.hooksPath.")
-@click.argument("hook_type", required=False, type=click.Choice(list(_HOOK_SCRIPTS.keys())))
+@click.argument("hook_type", required=False, type=click.Choice(_HOOK_TYPES))
 def hook_uninstall(global_uninstall: bool, hook_type: str | None) -> None:
     """Uninstall git hooks."""
     if global_uninstall:
@@ -281,7 +298,7 @@ def hook_status() -> None:
         if hooks_path:
             console.print(f"  core.hooksPath = {hooks_path}")
             hooks_dir = Path(hooks_path)
-            for hook_type in _HOOK_SCRIPTS:
+            for hook_type in _HOOK_TYPES:
                 hook_path = hooks_dir / hook_type
                 if hook_path.exists() and "ai-review" in hook_path.read_text():
                     console.print(f"  [green]{hook_type}: installed[/]")
@@ -296,7 +313,7 @@ def hook_status() -> None:
     console.print("\n[bold]Current repo hooks:[/]")
     try:
         hooks_dir = _get_repo_hooks_dir()
-        for hook_type in _HOOK_SCRIPTS:
+        for hook_type in _HOOK_TYPES:
             hook_path = hooks_dir / hook_type
             if hook_path.exists() and "ai-review" in hook_path.read_text():
                 console.print(f"  [green]{hook_type}: installed[/]")
@@ -309,8 +326,9 @@ def hook_status() -> None:
 def _install_global_hooks() -> None:
     import subprocess
 
+    hook_scripts = _generate_hook_scripts()
     _GLOBAL_HOOKS_DIR.mkdir(parents=True, exist_ok=True)
-    for hook_type, script in _HOOK_SCRIPTS.items():
+    for hook_type, script in hook_scripts.items():
         hook_path = _GLOBAL_HOOKS_DIR / hook_type
         hook_path.write_text(script)
         hook_path.chmod(0o755)
@@ -328,7 +346,7 @@ def _install_global_hooks() -> None:
 def _uninstall_global_hooks() -> None:
     import subprocess
 
-    for hook_type in _HOOK_SCRIPTS:
+    for hook_type in _HOOK_TYPES:
         hook_path = _GLOBAL_HOOKS_DIR / hook_type
         if hook_path.exists():
             hook_path.unlink()
@@ -347,7 +365,8 @@ def _uninstall_global_hooks() -> None:
 def _install_repo_hook(hook_type: str) -> None:
     hooks_dir = _get_repo_hooks_dir()
     hook_path = hooks_dir / hook_type
-    hook_path.write_text(_HOOK_SCRIPTS[hook_type])
+    hook_scripts = _generate_hook_scripts()
+    hook_path.write_text(hook_scripts[hook_type])
     hook_path.chmod(0o755)
     console.print(f"[green]Installed {hook_type} hook in current repo.[/]")
 
