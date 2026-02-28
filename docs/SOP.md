@@ -105,7 +105,45 @@ ai-review config get provider default
 
 預期輸出：`ollama`（或 `enterprise` / `openai`）
 
-### Step 3：啟用 Global Git Hooks
+### Step 3：啟用 Git Hooks
+
+依據團隊環境選擇一種：
+
+#### 方案 A：Template Hooks（推薦 Android 多 repo 團隊）
+
+利用 Git 的 `init.templateDir` 機制，新 clone 的 repo 自動帶有 hooks：
+
+```bash
+ai-review hook install --template
+```
+
+預期輸出：
+
+```
+  Created /home/user/.config/ai-code-review/template/hooks/pre-commit
+  Created /home/user/.config/ai-code-review/template/hooks/commit-msg
+
+Template hooks installed.
+init.templateDir → /home/user/.config/ai-code-review/template
+New clones will auto-get hooks. For existing repos: git init
+Hooks only activate in repos with ai-review.enabled = true.
+Enable a repo: ai-review hook enable
+```
+
+已存在的 repo 需要手動初始化一次才能取得 hooks：
+
+```bash
+# 單一 repo
+cd /path/to/camera-hal
+git init    # 安全操作，不會覆蓋現有資料
+
+# Android repo 專案（批次）
+repo forall -c 'git init'
+```
+
+#### 方案 B：Global Hooks（保留向後相容）
+
+使用 `core.hooksPath` 覆蓋所有 repo 的 hooks 路徑：
 
 ```bash
 ai-review hook install --global
@@ -114,46 +152,62 @@ ai-review hook install --global
 預期輸出：
 
 ```
-  Created /home/user/.config/ai-code-review/hooks/pre-commit
-  Created /home/user/.config/ai-code-review/hooks/commit-msg
-
 Global hooks installed.
 core.hooksPath → /home/user/.config/ai-code-review/hooks
 Hooks only activate in repos with a .ai-review marker file.
 Enable a repo: touch /path/to/repo/.ai-review
 ```
 
-驗證：
+> **注意**：`--global` 和 `--template` 不可同時使用。如果已設定 `core.hooksPath`，安裝 `--template` 時會顯示警告。
+
+#### 驗證
 
 ```bash
 ai-review hook status
 ```
 
-預期輸出：
+預期輸出（Template 模式）：
 
 ```
-Global hooks:
-  core.hooksPath = /home/user/.config/ai-code-review/hooks
+Template hooks:
+  init.templateDir = /home/user/.config/ai-code-review/template
   pre-commit: installed
   commit-msg: installed
 
-Current repo hooks:
-  pre-commit: not installed
-  commit-msg: not installed
+Global hooks:
+  core.hooksPath: not set
+
+Current repo:
+  ai-review.enabled = true
+  pre-commit: not installed (per-repo)
+  commit-msg: not installed (per-repo)
 ```
 
 ### Step 4：在需要的 Repo 啟用 AI Review
 
-Global hooks 採用 **opt-in 機制** — 只有 repo 根目錄存在 `.ai-review` 標記檔的 repo 才會觸發 AI review，其他 repo 完全不受影響。
+Hooks 採用 **opt-in 機制** — 只有設定了 `ai-review.enabled = true` 的 repo 才會觸發 AI review，其他 repo 完全不受影響。設定存在 `.git/config` 中，不會汙染 repo 檔案。
 
 ```bash
 # 單一 repo 啟用
 cd /path/to/camera-hal
-touch .ai-review
+ai-review hook enable
+# 等同於: git config --local ai-review.enabled true
 
-# 批次啟用多個 repo
+# 單一 repo 停用
+ai-review hook disable
+# 等同於: git config --local ai-review.enabled false
+```
+
+批次啟用（Android repo 專案）：
+
+```bash
+# 使用 repo forall 批次啟用
+repo forall -c 'ai-review hook enable'
+
+# 或使用 for 迴圈
 for repo in camera-hal kernel-bsp audio-driver display-drm; do
-    touch /path/to/repos/$repo/.ai-review
+    cd /path/to/repos/$repo
+    ai-review hook enable
 done
 ```
 
@@ -161,53 +215,7 @@ done
 
 ```bash
 cd /path/to/camera-hal
-ls .ai-review    # 檔案存在即啟用
-```
-
-#### `.ai-review` 標記檔的版本控制策略
-
-`.ai-review` 是空檔案，預設會被 git 追蹤。依據團隊需求選擇以下其中一種策略：
-
-| 策略 | 做法 | 適合場景 |
-|------|------|----------|
-| **團隊統一啟用** | 將 `.ai-review` checkin 到 repo | 所有成員 clone 後自動啟用，無需額外設定 |
-| **個人自行決定** | 將 `.ai-review` 加到 `.gitignore` | 每位開發者自行 `touch .ai-review` 決定是否啟用 |
-
-**策略 A：團隊統一啟用（推薦）**
-
-將 `.ai-review` 提交到 repo，所有成員 clone 後即自動生效：
-
-```bash
-cd /path/to/camera-hal
-touch .ai-review
-git add .ai-review
-git commit -m "[TOOL-001] enable AI code review for this repo"
-```
-
-批次操作：
-
-```bash
-for repo in camera-hal kernel-bsp audio-driver display-drm; do
-    cd /path/to/repos/$repo
-    touch .ai-review
-    git add .ai-review
-    git commit -m "[TOOL-001] enable AI code review for this repo"
-done
-```
-
-**策略 B：個人自行決定**
-
-不提交 `.ai-review`，改為加入 `.gitignore`，讓每位開發者自行決定：
-
-```bash
-# 專案管理者：將 .ai-review 加入 .gitignore
-echo ".ai-review" >> .gitignore
-git add .gitignore
-git commit -m "[TOOL-001] allow per-developer AI review opt-in"
-
-# 開發者：自行啟用
-cd /path/to/camera-hal
-touch .ai-review    # 只影響本機，不會被 commit
+ai-review hook status
 ```
 
 ### Step 5（選用）：調整審查副檔名
@@ -226,8 +234,8 @@ ai-review config set review include_extensions ""
 
 - [ ] `ai-review --help` 正常顯示
 - [ ] `ai-review config get provider default` 顯示已設定的 provider
-- [ ] `ai-review hook status` 顯示 global hooks installed
-- [ ] 需要 AI review 的 repo 根目錄有 `.ai-review` 檔案
+- [ ] `ai-review hook status` 顯示 template hooks 或 global hooks installed
+- [ ] 需要 AI review 的 repo 已執行 `ai-review hook enable`（`ai-review.enabled = true`）
 - [ ] （Ollama 用戶）`ollama list` 顯示已下載的模型
 
 ---
@@ -236,9 +244,9 @@ ai-review config set review include_extensions ""
 
 ### 場景 1：日常 Commit（自動觸發）
 
-安裝 global hooks 並在 repo 中建立 `.ai-review` 標記檔後，每次 `git commit` 會自動執行兩道檢查。無需額外操作。
+安裝 hooks 並在 repo 中啟用 ai-review 後，每次 `git commit` 會自動執行兩道檢查。無需額外操作。
 
-**前提**：repo 根目錄已有 `.ai-review` 檔案（`touch .ai-review`）。
+**前提**：repo 已啟用 AI review（`ai-review hook enable`）。
 
 #### 實例：修改 Camera HAL 並 commit
 
@@ -258,9 +266,9 @@ git commit -m "[CAM-456] fix null pointer crash when switching camera"
 ```
 git commit
   │
-  ├─ 檢查 .ai-review 標記檔
-  │   ✗ 不存在 → 跳過所有 hook，直接 commit
-  │   ✓ 存在 → 繼續執行
+  ├─ 檢查 git config --local ai-review.enabled
+  │   ✗ 未設定或 false → 跳過所有 hook，直接 commit
+  │   ✓ true → 繼續執行
   │
   ├─ [Hook 1] AI Code Review (pre-commit stage)
   │   分析 CameraHal.cpp 的 diff（只審查 c/cpp/h/hpp/java）...
@@ -394,25 +402,27 @@ git commit --no-verify -m "[HOTFIX-001] emergency fix for boot loop"
 ### 場景 5：啟用或停用特定 Repo
 
 ```bash
-# 啟用 AI review（建立標記檔）
+# 啟用 AI review
 cd /path/to/camera-hal
-touch .ai-review
+ai-review hook enable
 
-# 停用 AI review（移除標記檔）
-rm .ai-review
+# 停用 AI review
+ai-review hook disable
 
-# 批次啟用多個 repo
-for repo in camera-hal kernel-bsp audio-driver; do
-    touch /path/to/repos/$repo/.ai-review
-done
+# 批次啟用（Android repo 專案）
+repo forall -c 'ai-review hook enable'
 
 # 批次停用
+repo forall -c 'ai-review hook disable'
+
+# 或使用 for 迴圈批次操作
 for repo in camera-hal kernel-bsp audio-driver; do
-    rm -f /path/to/repos/$repo/.ai-review
+    cd /path/to/repos/$repo
+    ai-review hook enable
 done
 ```
 
-沒有 `.ai-review` 標記檔的 repo，hooks 會自動跳過，commit 行為與未安裝 ai-review 完全相同。
+未啟用 `ai-review.enabled` 的 repo，hooks 會自動跳過，commit 行為與未安裝 ai-review 完全相同。
 
 ---
 
@@ -477,14 +487,32 @@ AI 只聚焦以下嚴重問題，**不會**報告程式碼風格或命名建議�
 
 ### Q: 安裝後所有 repo 都會被影響嗎？
 
-不會。Global hooks 採用 **opt-in 機制**，只有 repo 根目錄存在 `.ai-review` 檔案的 repo 才會觸發 AI review。沒有標記檔的 repo 完全不受影響，commit 行為與未安裝 ai-review 時相同。
+不會。Hooks 採用 **opt-in 機制**，只有透過 `git config --local ai-review.enabled true` 啟用的 repo 才會觸發 AI review。未啟用的 repo 完全不受影響，commit 行為與未安裝 ai-review 時相同。
 
 ```bash
 # 啟用
-touch /path/to/repo/.ai-review
+ai-review hook enable
 
 # 停用
-rm /path/to/repo/.ai-review
+ai-review hook disable
+```
+
+### Q: 如何從 `--global` 遷移到 `--template`？
+
+```bash
+# 1. 移除 global hooks
+ai-review hook uninstall --global
+
+# 2. 安裝 template hooks
+ai-review hook install --template
+
+# 3. 讓現有 repo 取得 hooks
+repo forall -c 'git init'
+
+# 4. 將原本的 .ai-review 標記檔改為 git config
+#    在每個有 .ai-review 的 repo 中執行：
+ai-review hook enable
+rm .ai-review    # 可選：移除舊標記檔
 ```
 
 ### Q: Ollama 服務沒啟動怎麼辦？
@@ -514,11 +542,12 @@ pip install --upgrade ai-code-review
 ### Q: 如何完全移除？
 
 ```bash
-# 1. 移除 global hooks
-ai-review hook uninstall --global
+# 1. 移除 hooks（依據安裝方式擇一）
+ai-review hook uninstall --template    # 如果用 --template
+ai-review hook uninstall --global      # 如果用 --global
 
-# 2. 移除所有 repo 的標記檔
-find /path/to/repos -name ".ai-review" -delete
+# 2. 停用所有 repo
+repo forall -c 'ai-review hook disable'
 
 # 3. 移除套件
 pip uninstall ai-code-review
@@ -555,15 +584,21 @@ ai-review config set provider default ollama
 ai-review config set ollama base_url "${OLLAMA_URL:-http://localhost:11434}"
 ai-review config set ollama model "${OLLAMA_MODEL:-llama3.1}"
 
-# 3. Enable global hooks (opt-in mode)
-ai-review hook install --global
+# 3. Enable template hooks (opt-in mode)
+ai-review hook install --template
 
 echo ""
 echo "=== Setup Complete ==="
-echo "Global hooks installed (opt-in mode)."
+echo "Template hooks installed (opt-in mode)."
+echo ""
+echo "For existing repos, run: git init"
+echo "For Android repo projects: repo forall -c 'git init'"
 echo ""
 echo "Enable AI review for a repo:"
-echo "  touch /path/to/repo/.ai-review"
+echo "  ai-review hook enable"
+echo ""
+echo "Batch enable:"
+echo "  repo forall -c 'ai-review hook enable'"
 echo ""
 echo "To skip once: git commit --no-verify"
 ```
@@ -577,7 +612,13 @@ bash setup-ai-review.sh
 # 指定共用 Ollama 伺服器
 OLLAMA_URL=http://192.168.1.100:11434 bash setup-ai-review.sh
 
-# 安裝後，在需要的 repo 啟用
-touch /path/to/camera-hal/.ai-review
-touch /path/to/kernel-bsp/.ai-review
+# 讓現有 repo 取得 hooks
+repo forall -c 'git init'
+
+# 批次啟用需要的 repo
+repo forall -c 'ai-review hook enable'
+
+# 或個別啟用
+cd /path/to/camera-hal && ai-review hook enable
+cd /path/to/kernel-bsp && ai-review hook enable
 ```
