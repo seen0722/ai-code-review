@@ -11,7 +11,8 @@ Designed for teams that push directly to main across hundreds of internal GitLab
 ## Commands
 
 ```bash
-# Setup (virtual env at .venv/)
+# Setup (clone repo, then install in dev mode)
+git clone https://github.com/seen0722/ai-code-review.git && cd ai-code-review
 pip install -e ".[dev]"
 
 # Tests (110 tests, pytest + respx + pytest-mock)

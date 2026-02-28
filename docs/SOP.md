@@ -13,8 +13,35 @@
 
 ### Step 1：安裝 ai-review
 
+如果尚未安裝 Python 3.10+：
+
 ```bash
-pip install ai-code-review
+# Ubuntu/Debian
+sudo apt update && sudo apt install python3 python3-pip python3-venv
+
+# macOS (Homebrew)
+brew install python@3.12
+```
+
+從原始碼安裝：
+
+```bash
+# GitHub
+git clone https://github.com/seen0722/ai-code-review.git
+
+# 或內網 GitLab（替換為實際 URL）
+# git clone https://gitlab.internal.company.com/bsp-tools/ai-code-review.git
+
+cd ai-code-review
+python3 -m venv .venv
+source .venv/bin/activate
+pip install .
+```
+
+或直接安裝（不需 clone）：
+
+```bash
+pip install git+https://github.com/seen0722/ai-code-review.git
 ```
 
 驗證：`ai-review --help`
@@ -278,8 +305,15 @@ rm -rf ~/.config/ai-code-review
 ```bash
 #!/usr/bin/env bash
 set -e
+REPO_URL="${AI_REVIEW_REPO:-https://github.com/seen0722/ai-code-review.git}"
+INSTALL_DIR="${HOME}/ai-code-review"
+
 echo "=== AI Code Review Setup ==="
-pip install ai-code-review
+git clone "$REPO_URL" "$INSTALL_DIR"
+cd "$INSTALL_DIR"
+python3 -m venv .venv
+source .venv/bin/activate
+pip install .
 ai-review config set provider default ollama
 ai-review config set ollama base_url "${OLLAMA_URL:-http://localhost:11434}"
 ai-review config set ollama model "${OLLAMA_MODEL:-llama3.1}"
@@ -291,7 +325,11 @@ echo "Skip once:    git commit --no-verify"
 ```
 
 ```bash
-# 使用
+# 使用（GitHub）
 bash setup-ai-review.sh
+
+# 使用（內網 GitLab）
+AI_REVIEW_REPO=https://gitlab.internal.company.com/bsp-tools/ai-code-review.git bash setup-ai-review.sh
+
 repo forall -c 'git init && ai-review hook enable'
 ```

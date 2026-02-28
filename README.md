@@ -14,9 +14,42 @@ AI-powered code review CLI for Android BSP teams. Catches serious defects (memor
 
 ## Installation
 
+### Prerequisites
+
+- Python 3.10+ (`python3 --version`)
+- Git (`git --version`)
+- pip (`pip --version`)
+
+If Python 3.10+ is not installed:
+
 ```bash
-pip install ai-code-review
+# Ubuntu/Debian
+sudo apt update && sudo apt install python3 python3-pip python3-venv
+
+# macOS (Homebrew)
+brew install python@3.12
 ```
+
+### Install from source
+
+```bash
+# GitHub
+git clone https://github.com/seen0722/ai-code-review.git
+
+# Or internal GitLab (replace with your URL)
+# git clone https://gitlab.internal.company.com/bsp-tools/ai-code-review.git
+
+cd ai-code-review
+pip install .
+```
+
+Alternatively, install directly without cloning:
+
+```bash
+pip install git+https://github.com/seen0722/ai-code-review.git
+```
+
+Verify: `ai-review --help`
 
 ## Quick Start
 
