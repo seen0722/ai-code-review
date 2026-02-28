@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from ai_code_review.cli import main, _GLOBAL_HOOKS_DIR
+from ai_code_review.cli import main, _GLOBAL_HOOKS_DIR, _TEMPLATE_HOOKS_DIR
 
 
 @pytest.fixture
@@ -127,3 +127,32 @@ class TestTemplateHookScripts:
         global_scripts = _generate_hook_scripts()
         template_scripts = _generate_template_hook_scripts()
         assert global_scripts["pre-commit"] != template_scripts["pre-commit"]
+
+
+class TestTemplateHookInstall:
+    def test_installs_template_hooks(self, runner, tmp_path):
+        fake_template_dir = tmp_path / "template" / "hooks"
+        with patch("ai_code_review.cli._TEMPLATE_HOOKS_DIR", fake_template_dir), \
+             patch("subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess([], 0)
+            result = runner.invoke(main, ["hook", "install", "--template"])
+
+        assert result.exit_code == 0
+        assert (fake_template_dir / "pre-commit").exists()
+        assert (fake_template_dir / "commit-msg").exists()
+        assert "git config --local ai-review.enabled" in (fake_template_dir / "pre-commit").read_text()
+        mock_run.assert_called_once_with(
+            ["git", "config", "--global", "init.templateDir",
+             str(fake_template_dir.parent)],
+            check=True,
+        )
+
+    def test_template_hook_scripts_are_executable(self, runner, tmp_path):
+        fake_template_dir = tmp_path / "template" / "hooks"
+        with patch("ai_code_review.cli._TEMPLATE_HOOKS_DIR", fake_template_dir), \
+             patch("subprocess.run"):
+            runner.invoke(main, ["hook", "install", "--template"])
+
+        for hook_type in ["pre-commit", "commit-msg"]:
+            hook_path = fake_template_dir / hook_type
+            assert hook_path.stat().st_mode & 0o755

@@ -288,15 +288,18 @@ def hook_group() -> None:
 
 @hook_group.command("install")
 @click.option("--global", "global_install", is_flag=True, help="Install globally via core.hooksPath (all repos).")
+@click.option("--template", "template_install", is_flag=True, help="Install via init.templateDir (recommended for Android).")
 @click.argument("hook_type", required=False, type=click.Choice(_HOOK_TYPES))
-def hook_install(global_install: bool, hook_type: str | None) -> None:
-    """Install git hooks. Use --global to apply to all repos."""
-    if global_install:
+def hook_install(global_install: bool, template_install: bool, hook_type: str | None) -> None:
+    """Install git hooks. Use --template for Android multi-repo teams."""
+    if template_install:
+        _install_template_hooks()
+    elif global_install:
         _install_global_hooks()
     elif hook_type:
         _install_repo_hook(hook_type)
     else:
-        console.print("[bold red]Specify a hook type or use --global.[/]")
+        console.print("[bold red]Specify a hook type, --global, or --template.[/]")
         sys.exit(1)
 
 
@@ -393,6 +396,29 @@ def _uninstall_global_hooks() -> None:
         console.print("[green]Global hooks uninstalled (core.hooksPath cleared).[/]")
     except subprocess.CalledProcessError:
         console.print("[dim]core.hooksPath was not set.[/]")
+
+
+def _install_template_hooks() -> None:
+    import subprocess
+
+    hook_scripts = _generate_template_hook_scripts()
+    _TEMPLATE_HOOKS_DIR.mkdir(parents=True, exist_ok=True)
+    for hook_type, script in hook_scripts.items():
+        hook_path = _TEMPLATE_HOOKS_DIR / hook_type
+        hook_path.write_text(script)
+        hook_path.chmod(0o755)
+        console.print(f"  [green]Created {hook_path}[/]")
+
+    template_dir = _TEMPLATE_HOOKS_DIR.parent
+    subprocess.run(
+        ["git", "config", "--global", "init.templateDir", str(template_dir)],
+        check=True,
+    )
+    console.print(f"\n[green]Template hooks installed.[/]")
+    console.print(f"[dim]init.templateDir → {template_dir}[/]")
+    console.print("[dim]New clones will auto-copy hooks to .git/hooks/[/]")
+    console.print("[dim]Existing repos: run 'git init' to copy hooks[/]")
+    console.print("[dim]Enable a repo: git config --local ai-review.enabled true[/]")
 
 
 def _install_repo_hook(hook_type: str) -> None:
