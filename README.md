@@ -134,20 +134,6 @@ ai-review hook status                  # show hook status
 git commit --no-verify -m "[HOTFIX-001] emergency fix"
 ```
 
-### pre-commit framework
-
-If your team uses the [pre-commit](https://pre-commit.com) framework, add to `.pre-commit-config.yaml`:
-
-```yaml
-repos:
-  - repo: https://github.com/seen0722/ai-code-review
-    rev: v0.1.0
-    hooks:
-      - id: ai-review-commit-msg
-      - id: ai-review-code
-        args: ["--provider", "ollama"]
-```
-
 ## Commit Message Format
 
 All commit messages must follow: `[PROJECT-NUMBER] description`

@@ -94,10 +94,6 @@ check-commit flow:
 - `ai-review hook install pre-commit` / `commit-msg` writes to `.git/hooks/`
 - Only affects the current repository, no opt-in check
 
-### pre-commit framework
-- `.pre-commit-hooks.yaml` at project root provides two hooks for consumers
-- `ai-review-commit-msg` (commit-msg stage) and `ai-review-code` (pre-commit stage)
-
 ## Key Patterns
 
 - **Provider pattern**: All LLM backends implement `LLMProvider` ABC (`review_code()`, `improve_commit_msg()`, `health_check()`). New provider = one new file in `llm/`.
