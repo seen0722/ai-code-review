@@ -9,6 +9,7 @@ AI-powered code review CLI for Android BSP teams. Catches serious defects (memor
 - **AI commit message improvement** — Fixes English grammar and clarifies descriptions
 - **Multiple LLM backends** — Ollama (local), enterprise internal LLM, OpenAI
 - **Template hooks** — One command to enable across all repos via `init.templateDir`
+- **Custom review rules** — Add project-specific checks via config, no code changes needed
 - **Multiple output formats** — Terminal (colored), Markdown, JSON
 
 ## Installation
@@ -126,6 +127,16 @@ Examples:
 ```
 
 When using the commit-msg hook, AI will suggest grammar and clarity improvements automatically.
+
+## Custom Review Rules
+
+Add project-specific review rules without modifying source code:
+
+```bash
+ai-review config set review custom_rules "Also check for integer overflow, use-after-free, and double-free"
+```
+
+Custom rules are appended to the default BSP review prompt. When not set, behavior is unchanged.
 
 ## Configuration
 

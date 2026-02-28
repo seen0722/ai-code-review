@@ -98,9 +98,11 @@ def _review(ctx: click.Context) -> None:
             console.print("[dim]No staged changes to review.[/]")
         return
 
+    custom_rules = config.get("review", "custom_rules")
+
     provider = _build_provider(config, cli_provider, cli_model)
     reviewer = Reviewer(provider=provider)
-    result = reviewer.review_diff(diff)
+    result = reviewer.review_diff(diff, custom_rules=custom_rules)
 
     formatters = {"terminal": format_terminal, "markdown": format_markdown, "json": format_json}
     output = formatters[output_format](result)

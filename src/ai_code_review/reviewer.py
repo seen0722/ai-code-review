@@ -8,8 +8,8 @@ class Reviewer:
     def __init__(self, provider: LLMProvider) -> None:
         self._provider = provider
 
-    def review_diff(self, diff: str) -> ReviewResult:
-        prompt = get_review_prompt()
+    def review_diff(self, diff: str, custom_rules: str | None = None) -> ReviewResult:
+        prompt = get_review_prompt(custom_rules)
         return self._provider.review_code(diff, prompt)
 
     def improve_commit_message(self, message: str, diff: str) -> str:

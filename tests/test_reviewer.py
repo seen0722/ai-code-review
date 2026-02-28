@@ -35,6 +35,17 @@ class TestReviewDiff:
         assert len(result.issues) == 1
 
 
+    def test_passes_custom_rules_to_prompt(self, reviewer, mock_provider):
+        reviewer.review_diff("diff", custom_rules="check integer overflow")
+        prompt_arg = mock_provider.review_code.call_args[0][1]
+        assert "integer overflow" in prompt_arg
+
+    def test_no_custom_rules_uses_default_prompt(self, reviewer, mock_provider):
+        reviewer.review_diff("diff")
+        prompt_arg = mock_provider.review_code.call_args[0][1]
+        assert "Additional rules" not in prompt_arg
+
+
 class TestImproveCommitMessage:
     def test_calls_provider(self, reviewer, mock_provider):
         reviewer.improve_commit_message("[BSP-1] fix bug", "diff")

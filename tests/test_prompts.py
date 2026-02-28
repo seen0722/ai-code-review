@@ -13,6 +13,30 @@ class TestReviewPrompt:
         assert "naming" not in prompt.lower() or "do not" in prompt.lower()
 
 
+    def test_no_custom_rules_returns_default(self):
+        prompt = get_review_prompt()
+        assert "Additional rules" not in prompt
+
+    def test_custom_rules_appended(self):
+        prompt = get_review_prompt("check integer overflow")
+        assert "Additional rules:" in prompt
+        assert "check integer overflow" in prompt
+
+    def test_custom_rules_before_do_not_report(self):
+        prompt = get_review_prompt("check use-after-free")
+        do_not_pos = prompt.index("Do not report:")
+        rules_pos = prompt.index("Additional rules:")
+        assert rules_pos < do_not_pos
+
+    def test_none_custom_rules_returns_default(self):
+        prompt = get_review_prompt(None)
+        assert "Additional rules" not in prompt
+
+    def test_empty_string_custom_rules_returns_default(self):
+        prompt = get_review_prompt("")
+        assert "Additional rules" not in prompt
+
+
 class TestCommitImprovePrompt:
     def test_contains_grammar_instruction(self):
         prompt = get_commit_improve_prompt("[BSP-1] fix bug", "diff content")

@@ -48,6 +48,46 @@ class TestReviewCommand:
         assert "no" in result.output.lower() and ("change" in result.output.lower() or "staged" in result.output.lower())
 
 
+    @patch("ai_code_review.cli.Config")
+    @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_staged_diff")
+    def test_passes_custom_rules_from_config(self, mock_diff, mock_build, mock_config_cls, runner):
+        mock_diff.return_value = "some diff"
+        mock_config = MagicMock()
+        mock_config.get.side_effect = lambda s, k: {
+            ("review", "include_extensions"): "c,cpp",
+            ("review", "custom_rules"): "check integer overflow",
+        }.get((s, k))
+        mock_config.resolve_provider.return_value = "ollama"
+        mock_config_cls.return_value = mock_config
+        mock_provider = MagicMock()
+        mock_provider.review_code.return_value = ReviewResult(issues=[])
+        mock_build.return_value = mock_provider
+
+        result = runner.invoke(main, [])
+        assert result.exit_code == 0
+        prompt_arg = mock_provider.review_code.call_args[0][1]
+        assert "integer overflow" in prompt_arg
+
+    @patch("ai_code_review.cli.Config")
+    @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_staged_diff")
+    def test_no_custom_rules_uses_default_prompt(self, mock_diff, mock_build, mock_config_cls, runner):
+        mock_diff.return_value = "some diff"
+        mock_config = MagicMock()
+        mock_config.get.return_value = None
+        mock_config.resolve_provider.return_value = "ollama"
+        mock_config_cls.return_value = mock_config
+        mock_provider = MagicMock()
+        mock_provider.review_code.return_value = ReviewResult(issues=[])
+        mock_build.return_value = mock_provider
+
+        result = runner.invoke(main, [])
+        assert result.exit_code == 0
+        prompt_arg = mock_provider.review_code.call_args[0][1]
+        assert "Additional rules" not in prompt_arg
+
+
 class TestCheckCommitCommand:
     def test_valid_message(self, runner):
         result = runner.invoke(main, ["check-commit"], input="[BSP-123] fix bug\n")

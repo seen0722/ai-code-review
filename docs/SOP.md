@@ -83,6 +83,18 @@ repo forall -c 'ai-review hook enable'
 ai-review config set review include_extensions "c,cpp,h,hpp,java,kt"
 ```
 
+### Step 6（選用）：新增自訂審查規則
+
+在預設 BSP 審查規則之外，追加專案特定的檢查項目：
+
+```bash
+ai-review config set review custom_rules "Also check for integer overflow, use-after-free, and double-free"
+```
+
+驗證：`ai-review config get review custom_rules`
+
+自訂規則會附加在預設 prompt 後面，未設定時行為與預設完全相同。
+
 ### 安裝檢查清單
 
 - [ ] `ai-review --help` 正常顯示
@@ -202,6 +214,7 @@ model = "llama3.1"
 
 [review]
 include_extensions = "c,cpp,h,hpp,java"
+custom_rules = "Also check for integer overflow and use-after-free"
 
 [openai]
 api_key_env = "OPENAI_API_KEY"

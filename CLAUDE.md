@@ -14,7 +14,7 @@ Designed for teams that push directly to main across hundreds of internal GitLab
 # Setup (virtual env at .venv/)
 pip install -e ".[dev]"
 
-# Tests (101 tests, pytest + respx + pytest-mock)
+# Tests (110 tests, pytest + respx + pytest-mock)
 pytest                            # run all
 pytest tests/test_cli.py -v       # single file
 pytest -k "test_healthy" -v       # pattern match
@@ -65,7 +65,8 @@ src/ai_code_review/
 CLI (cli.py)
   → get_staged_diff() (git.py)
   → _build_provider() selects OllamaProvider / OpenAIProvider / EnterpriseProvider
-  → Reviewer.review_diff() → provider.review_code(diff, prompt) → ReviewResult
+  → config.get("review", "custom_rules") → optional custom rules
+  → Reviewer.review_diff(diff, custom_rules) → get_review_prompt(custom_rules) → provider.review_code(diff, prompt) → ReviewResult
   → format_terminal/markdown/json(result) → output
   → exit(1) if result.is_blocked (critical/error severity)
 
@@ -106,6 +107,7 @@ check-commit flow:
 - **Non-interactive mode**: `--auto-accept` flag or `AI_REVIEW_AUTO_ACCEPT=1` env var skips interactive prompt in commit-msg hook, auto-accepts AI suggestion.
 - **Opt-in mechanism**: template hooks check `git config --local ai-review.enabled`; repos without opt-in are skipped entirely. No repo file pollution.
 - **File extension filter**: `review.include_extensions` config (default: `c,cpp,h,hpp,java`); only matching files are sent to LLM.
+- **Custom review rules**: `review.custom_rules` config (optional); natural language string appended to default BSP review prompt as additional rules. Set via `ai-review config set review custom_rules "..."`. When unset, behavior is identical to before.
 
 ## Testing Conventions
 
