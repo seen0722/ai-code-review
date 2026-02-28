@@ -4,7 +4,7 @@
 
 **Goal:** 將 hook 部署從 `.ai-review` 標記檔 + `core.hooksPath` 改為 `init.templateDir` + `git config --local` opt-in，實現零 repo 檔案污染。
 
-**Architecture:** 新增 `--template` 安裝模式，hook 腳本寫入 `~/.config/ai-code-review/template/hooks/`，透過 `init.templateDir` 自動複製到 `.git/hooks/`。Opt-in 使用 `git config --local ai-review.enabled true` 取代 `.ai-review` 標記檔。保留現行 `--global` 模式向後相容。
+**Architecture:** 新增 `--template` 安裝模式，hook 腳本寫入 `~/.config/ai-code-review/template/hooks/`，透過 `init.templateDir` 自動複製到 `.git/hooks/`。Opt-in 使用 `git config --local ai-review.enabled true` 取代 `.ai-review` 標記檔。
 
 **Tech Stack:** Python 3.10+, click CLI, subprocess (git config), pytest + CliRunner + monkeypatch
 
@@ -34,11 +34,11 @@ class TestTemplateHookScripts:
             assert ".ai-review" not in script
             assert "ai-review" in script
 
-    def test_template_scripts_are_different_from_global(self):
-        from ai_code_review.cli import _generate_hook_scripts, _generate_template_hook_scripts
-        global_scripts = _generate_hook_scripts()
-        template_scripts = _generate_template_hook_scripts()
-        assert global_scripts["pre-commit"] != template_scripts["pre-commit"]
+    def test_template_scripts_contain_required_commands(self):
+        from ai_code_review.cli import _generate_template_hook_scripts
+        scripts = _generate_template_hook_scripts()
+        assert "ai-review" in scripts["pre-commit"]
+        assert "check-commit" in scripts["commit-msg"]
 ```
 
 **Step 2: 跑測試確認失敗**
@@ -143,19 +143,16 @@ Expected: FAIL — no such option `--template`
 
 ```python
 @hook_group.command("install")
-@click.option("--global", "global_install", is_flag=True, help="Install globally via core.hooksPath (all repos).")
 @click.option("--template", "template_install", is_flag=True, help="Install via init.templateDir (recommended for Android).")
 @click.argument("hook_type", required=False, type=click.Choice(_HOOK_TYPES))
-def hook_install(global_install: bool, template_install: bool, hook_type: str | None) -> None:
+def hook_install(template_install: bool, hook_type: str | None) -> None:
     """Install git hooks. Use --template for Android multi-repo teams."""
     if template_install:
         _install_template_hooks()
-    elif global_install:
-        _install_global_hooks()
     elif hook_type:
         _install_repo_hook(hook_type)
     else:
-        console.print("[bold red]Specify a hook type, --global, or --template.[/]")
+        console.print("[bold red]Specify a hook type or --template.[/]")
         sys.exit(1)
 ```
 
@@ -240,19 +237,16 @@ Expected: FAIL — no such option `--template`
 
 ```python
 @hook_group.command("uninstall")
-@click.option("--global", "global_uninstall", is_flag=True, help="Remove global hooks and core.hooksPath.")
 @click.option("--template", "template_uninstall", is_flag=True, help="Remove template hooks and init.templateDir.")
 @click.argument("hook_type", required=False, type=click.Choice(_HOOK_TYPES))
-def hook_uninstall(global_uninstall: bool, template_uninstall: bool, hook_type: str | None) -> None:
+def hook_uninstall(template_uninstall: bool, hook_type: str | None) -> None:
     """Uninstall git hooks."""
     if template_uninstall:
         _uninstall_template_hooks()
-    elif global_uninstall:
-        _uninstall_global_hooks()
     elif hook_type:
         _uninstall_repo_hook(hook_type)
     else:
-        console.print("[bold red]Specify a hook type, --global, or --template.[/]")
+        console.print("[bold red]Specify a hook type or --template.[/]")
         sys.exit(1)
 ```
 
@@ -417,8 +411,6 @@ class TestHookStatusTemplate:
             def side_effect(cmd, **kwargs):
                 if "init.templateDir" in cmd:
                     return subprocess.CompletedProcess(cmd, 0, stdout=str(fake_template_dir.parent))
-                if "core.hooksPath" in cmd:
-                    return subprocess.CompletedProcess(cmd, 1, stdout="")
                 return subprocess.CompletedProcess(cmd, 0, stdout="")
             mock_run.side_effect = side_effect
             result = runner.invoke(main, ["hook", "status"])
@@ -447,7 +439,7 @@ Expected: FAIL — "Template hooks" not in output
 ```python
 @hook_group.command("status")
 def hook_status() -> None:
-    """Show installed hooks (template, global, and current repo)."""
+    """Show installed hooks (template and current repo)."""
     import subprocess
 
     # Template hooks status
@@ -461,28 +453,6 @@ def hook_status() -> None:
         if template_path:
             console.print(f"  init.templateDir = {template_path}")
             hooks_dir = Path(template_path) / "hooks"
-            for hook_type in _HOOK_TYPES:
-                hook_path = hooks_dir / hook_type
-                if hook_path.exists() and "ai-review" in hook_path.read_text():
-                    console.print(f"  [green]{hook_type}: installed[/]")
-                else:
-                    console.print(f"  [dim]{hook_type}: not installed[/]")
-        else:
-            console.print("  [dim]not configured[/]")
-    except Exception:
-        console.print("  [dim]not configured[/]")
-
-    # Global hooks status
-    console.print("\n[bold]Global hooks:[/]")
-    try:
-        result = subprocess.run(
-            ["git", "config", "--global", "core.hooksPath"],
-            capture_output=True, text=True,
-        )
-        hooks_path = result.stdout.strip()
-        if hooks_path:
-            console.print(f"  core.hooksPath = {hooks_path}")
-            hooks_dir = Path(hooks_path)
             for hook_type in _HOOK_TYPES:
                 hook_path = hooks_dir / hook_type
                 if hook_path.exists() and "ai-review" in hook_path.read_text():
@@ -534,75 +504,14 @@ git commit -m "feat: update hook status to show template and enabled state"
 
 ---
 
-### Task 6: `--global` 與 `--template` 衝突檢查
-
-**Files:**
-- Modify: `src/ai_code_review/cli.py` (`_install_template_hooks`, `_install_global_hooks`)
-- Test: `tests/test_hooks.py`
-
-**Step 1: 寫測試**
-
-```python
-class TestHookConflictCheck:
-    def test_template_warns_if_global_hooks_active(self, runner, tmp_path):
-        fake_template_dir = tmp_path / "template" / "hooks"
-        with patch("ai_code_review.cli._TEMPLATE_HOOKS_DIR", fake_template_dir), \
-             patch("subprocess.run") as mock_run:
-            def side_effect(cmd, **kwargs):
-                if cmd == ["git", "config", "--global", "core.hooksPath"]:
-                    return subprocess.CompletedProcess(cmd, 0, stdout="/some/hooks/path\n")
-                return subprocess.CompletedProcess(cmd, 0)
-            mock_run.side_effect = side_effect
-            result = runner.invoke(main, ["hook", "install", "--template"])
-
-        assert result.exit_code == 0
-        assert "core.hooksPath" in result.output
-        assert "warning" in result.output.lower() or "Warning" in result.output
-```
-
-**Step 2: 跑測試確認失敗**
-
-Run: `pytest tests/test_hooks.py::TestHookConflictCheck -v`
-Expected: FAIL — no warning in output
-
-**Step 3: 在 `_install_template_hooks()` 開頭加入衝突檢查**
-
-在 `_install_template_hooks()` 的 `import subprocess` 之後加入：
-
-```python
-    # Check for conflicting core.hooksPath
-    check = subprocess.run(
-        ["git", "config", "--global", "core.hooksPath"],
-        capture_output=True, text=True,
-    )
-    if check.stdout.strip():
-        console.print(f"[bold yellow]Warning: core.hooksPath is set to {check.stdout.strip()}[/]")
-        console.print("[yellow]core.hooksPath overrides .git/hooks/ — template hooks won't run.[/]")
-        console.print("[yellow]Run 'ai-review hook uninstall --global' first.[/]")
-```
-
-**Step 4: 跑測試確認通過**
-
-Run: `pytest tests/test_hooks.py::TestHookConflictCheck -v`
-Expected: 1 passed
-
-**Step 5: Commit**
-
-```bash
-git add src/ai_code_review/cli.py tests/test_hooks.py
-git commit -m "feat: add conflict warning between --template and --global"
-```
-
----
-
-### Task 7: 跑全部測試確認無 regression
+### Task 6: 跑全部測試確認無 regression
 
 **Files:** 無修改
 
 **Step 1: 跑全部測試**
 
 Run: `pytest -v`
-Expected: 全部通過（88 既有 + 新增約 10 個 ≈ 98 tests）
+Expected: 全部通過
 
 **Step 2: 修復任何失敗的既有測試**
 
@@ -619,26 +528,22 @@ git commit -m "fix: resolve test regressions from hook redesign"
 
 ---
 
-### Task 8: 更新文件 — SOP
+### Task 7: 更新文件 — SOP
 
 **Files:**
 - Modify: `docs/SOP.md`
 
 **Step 1: 更新 SOP Step 3 和 Step 4**
 
-在 Step 3（啟用 Global Git Hooks）中新增 `--template` 方案，作為推薦選項。
+更新安裝流程，使用 `--template` 作為唯一推薦方案。
 
-Step 4 中將 `.ai-review` 標記檔改為 `git config --local` 和 `hook enable/disable`。
+使用 `git config --local` 和 `hook enable/disable` 作為 opt-in 機制。
 
-新增「遷移指南」段落，說明從 `--global` + `.ai-review` 遷移到 `--template` + `git config --local` 的步驟。
+更新 hook 執行流程圖，使用 `git config --local ai-review.enabled` 檢查。
 
-更新場景 1 的 hook 執行流程圖，將 `.ai-review` 檢查改為 `git config --local ai-review.enabled` 檢查。
+更新啟用/停用範例，使用 `ai-review hook enable` / `disable`。
 
-更新場景 5 的啟用/停用範例，使用 `ai-review hook enable` / `disable`。
-
-更新 FAQ，修改「安裝後所有 repo 都會被影響嗎」的回答。
-
-更新快速安裝腳本，加入 `--template` 選項。
+更新快速安裝腳本。
 
 **Step 2: Commit**
 
@@ -649,7 +554,7 @@ git commit -m "docs: update SOP with template hooks and git config opt-in"
 
 ---
 
-### Task 9: 更新文件 — README.md 和 CLAUDE.md
+### Task 8: 更新文件 — README.md 和 CLAUDE.md
 
 **Files:**
 - Modify: `README.md`
@@ -657,15 +562,15 @@ git commit -m "docs: update SOP with template hooks and git config opt-in"
 
 **Step 1: 更新 README.md**
 
-在 Hook Setup 段落新增 Template hooks 區塊（放在 Global hooks 之前，標為 recommended for Android）。
+更新 Hook Setup 段落，以 Template hooks 為唯一推薦方案。
 
 新增 `hook enable` / `hook disable` 說明。
 
 **Step 2: 更新 CLAUDE.md**
 
-更新 Commands 段落加入新指令。
+更新 Commands 段落，移除 `--global` 指令。
 
-更新 Hook Deployment 段落加入 template 模式說明。
+更新 Hook Deployment 段落，移除 global hooks 說明。
 
 更新 Key Patterns 段落的 opt-in 機制說明。
 
@@ -678,7 +583,7 @@ git commit -m "docs: update README and CLAUDE.md with template hook deployment"
 
 ---
 
-### Task 10: 最終驗證
+### Task 9: 最終驗證
 
 **Step 1: 跑全部測試**
 
@@ -688,7 +593,7 @@ Expected: 全部通過
 **Step 2: 驗證 CLI help 輸出**
 
 Run: `ai-review hook install --help`
-Expected: 顯示 `--global`、`--template` 選項
+Expected: 顯示 `--template` 選項
 
 Run: `ai-review hook --help`
 Expected: 顯示 `enable`、`disable`、`install`、`uninstall`、`status` commands
