@@ -14,7 +14,7 @@
 - **原生 git 機制** — hook 放在 `.git/hooks/`，opt-in 存在 `.git/config`
 - **200+ repo 批次操作友善** — 支援 `repo forall -c` 和 shell loop 批次啟用
 - **新 clone 自動獲得 hook** — 透過 `init.templateDir` 機制
-- **向後相容** — 仍支援現行 `core.hooksPath` 全域模式和 per-repo 模式
+- **Per-repo 支援** — 仍支援 per-repo 模式
 
 ## 設計
 
@@ -145,13 +145,12 @@ ai-review hook disable
 repo forall -c 'ai-review hook enable'
 ```
 
-#### 保留現有模式
+#### 支援模式
 
 | 模式 | 指令 | 說明 |
 |------|------|------|
-| Template（新增） | `ai-review hook install --template` | hook 進 `.git/hooks/`，推薦 Android 專案 |
-| Global（現行） | `ai-review hook install --global` | 設定 `core.hooksPath`，保留向後相容 |
-| Per-repo（現行） | `ai-review hook install pre-commit` | 單一 repo 安裝 |
+| Template（推薦） | `ai-review hook install --template` | hook 進 `.git/hooks/`，推薦 Android 專案 |
+| Per-repo | `ai-review hook install pre-commit` | 單一 repo 安裝 |
 
 #### `hook status` 更新
 
@@ -166,9 +165,6 @@ Template hooks:
   init.templateDir = /home/user/.config/ai-code-review/template
   pre-commit: installed
   commit-msg: installed
-
-Global hooks:
-  core.hooksPath: not configured
 
 Current repo:
   ai-review.enabled = true
@@ -202,48 +198,6 @@ repo forall -c 'git config --local ai-review.enabled true'
 # === 完成，之後 git commit 自動觸發 ===
 ```
 
-### 與現行 `.ai-review` 標記檔方案比較
-
-| 面向 | `.ai-review` 標記檔（現行） | `git config --local`（新方案） |
-|------|---------------------------|-------------------------------|
-| Repo 影響 | 產生新檔案 | **零影響**，存在 `.git/config` |
-| 版控問題 | 需處理 checkin vs .gitignore | **不存在** |
-| Hook 位置 | `core.hooksPath` 指向全域目錄 | **`.git/hooks/`**（原生） |
-| 啟用方式 | `touch .ai-review` | `git config --local ai-review.enabled true` |
-| 停用方式 | `rm .ai-review` | `git config --local --unset ai-review.enabled` |
-| 新 clone 自動 hook | 否（需手動 touch） | **是**（`init.templateDir` 自動複製） |
-| repo tool 相容 | 需處理 manifest | **`repo forall -c` 完美支援** |
-| 既有 hook 衝突 | `core.hooksPath` 覆蓋 `.git/hooks/` | **不衝突**，hook 在 `.git/hooks/` |
-
-### 向後相容與遷移
-
-現行 `--global`（`core.hooksPath`）模式保留不動。新增 `--template` 模式為獨立選項。
-
-兩者**不可同時使用**：`core.hooksPath` 會覆蓋 `.git/hooks/`，導致 template hook 不被執行。安裝 `--template` 時應檢查並警告。
-
-Hook 腳本中的 opt-in 檢查邏輯：
-- `--template` 模式：檢查 `git config --local ai-review.enabled`
-- `--global` 模式（現行）：保留檢查 `.ai-review` 標記檔，維持向後相容
-
-#### 遷移路徑
-
-從現行 `--global` 遷移到 `--template`：
-
-```bash
-# 1. 移除 global hooks
-ai-review hook uninstall --global
-
-# 2. 安裝 template hooks
-ai-review hook install --template
-
-# 3. 既有 repo 補上 hook + 啟用
-repo forall -c 'git init'
-repo forall -c 'git config --local ai-review.enabled true'
-
-# 4. 移除 repo 中的 .ai-review 標記檔（選用）
-repo forall -c 'rm -f .ai-review'
-```
-
 ### 測試計畫
 
 | 測試項目 | 驗證內容 |
@@ -251,11 +205,10 @@ repo forall -c 'rm -f .ai-review'
 | `hook install --template` | 建立 template 目錄、寫入 hook 腳本、設定 `init.templateDir` |
 | `hook uninstall --template` | 刪除 hook 檔案、unset `init.templateDir` |
 | `hook enable` / `hook disable` | 設定 / 移除 `ai-review.enabled` local config |
-| `hook status` | 顯示 template、global、current repo 三種狀態 |
+| `hook status` | 顯示 template、current repo 狀態 |
 | Template hook + enabled | hook 正常執行 AI review |
 | Template hook + disabled | hook 跳過，commit 正常 |
 | Template hook + `git init` 補上 | 既有 repo 跑 `git init` 後獲得 hook |
-| `--global` 與 `--template` 衝突檢查 | 同時設定時顯示警告 |
 | `_resolve_ai_review_path()` | hook 腳本使用絕對路徑，venv 環境可用 |
 
 ### 影響範圍

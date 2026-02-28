@@ -9,7 +9,7 @@ A Python CLI tool (`ai-review`) that provides AI-powered code review and commit 
 - Catch serious code defects (memory leaks, race conditions, null pointers, hardcoded secrets) before commit
 - Enforce unified commit message format: `[PROJECT-NUMBER] description`
 - AI-assisted English grammar correction and description improvement for commit messages
-- Zero workflow disruption — global git hooks (one command for all repos) or per-repo hooks
+- Zero workflow disruption — template hooks via `init.templateDir` (one command for all repos) or per-repo hooks
 - Support multiple LLM backends: local Ollama, enterprise LLM, external OpenAI
 
 ## Non-Goals (v1)
@@ -38,9 +38,11 @@ ai-review check-commit
 ai-review config set provider ollama
 ai-review config set ollama.base_url http://localhost:11434
 
-# Hook management — global (recommended for multi-repo teams)
-ai-review hook install --global     # all repos, one command
-ai-review hook uninstall --global
+# Hook management — template (recommended for multi-repo teams)
+ai-review hook install --template   # all repos via init.templateDir
+ai-review hook uninstall --template
+ai-review hook enable               # enable current repo (git config --local)
+ai-review hook disable              # disable current repo
 ai-review hook status
 
 # Hook management — per-repo
@@ -216,29 +218,29 @@ ai-code-review/
 
 ## Hook Deployment Strategies
 
-### Strategy A: Global Git Hooks (recommended for multi-repo teams)
+### Template hooks (recommended for multi-repo teams)
 
-One command enables AI review for all repos on the machine:
+Uses `init.templateDir` — new clones auto-get hooks in `.git/hooks/`, existing repos need `git init`:
 
 ```bash
-ai-review hook install --global
+ai-review hook install --template     # install template hooks
+ai-review hook enable                 # enable current repo (opt-in)
+repo forall -c 'git init'            # apply to existing repos
+repo forall -c 'ai-review hook enable'  # batch enable
 ```
 
-This creates hook scripts at `~/.config/ai-code-review/hooks/` and sets
-`git config --global core.hooksPath` to point there. No per-repo setup needed.
-
-- Disable for a single repo: `git config core.hooksPath .git/hooks`
+- Opt-in via `git config --local ai-review.enabled true` (stored in `.git/config`, no repo file pollution)
 - Skip once: `git commit --no-verify`
-- Uninstall: `ai-review hook uninstall --global`
+- Uninstall: `ai-review hook uninstall --template`
 
-### Strategy B: Per-repo hooks
+### Per-repo hooks
 
 ```bash
 ai-review hook install pre-commit
 ai-review hook install commit-msg
 ```
 
-### Strategy C: pre-commit framework
+### pre-commit framework
 
 `.pre-commit-hooks.yaml` at project root provides hooks for pre-commit consumers:
 
