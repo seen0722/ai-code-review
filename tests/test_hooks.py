@@ -110,3 +110,20 @@ class TestHookStatus:
         result = runner.invoke(main, ["hook", "status"])
         assert result.exit_code == 0
         assert "not installed" in result.output.lower() or "not configured" in result.output.lower()
+
+
+class TestTemplateHookScripts:
+    def test_template_scripts_use_git_config_opt_in(self):
+        from ai_code_review.cli import _generate_template_hook_scripts
+        scripts = _generate_template_hook_scripts()
+        for hook_type in ["pre-commit", "commit-msg"]:
+            script = scripts[hook_type]
+            assert "git config --local ai-review.enabled" in script
+            assert ".ai-review" not in script
+            assert "ai-review" in script
+
+    def test_template_scripts_are_different_from_global(self):
+        from ai_code_review.cli import _generate_hook_scripts, _generate_template_hook_scripts
+        global_scripts = _generate_hook_scripts()
+        template_scripts = _generate_template_hook_scripts()
+        assert global_scripts["pre-commit"] != template_scripts["pre-commit"]

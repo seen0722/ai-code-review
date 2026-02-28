@@ -210,6 +210,7 @@ def config_get(section: str, key: str) -> None:
 # --- Hook management ---
 
 _GLOBAL_HOOKS_DIR = Path.home() / ".config" / "ai-code-review" / "hooks"
+_TEMPLATE_HOOKS_DIR = Path.home() / ".config" / "ai-code-review" / "template" / "hooks"
 
 
 def _resolve_ai_review_path() -> str:
@@ -240,6 +241,29 @@ def _generate_hook_scripts() -> dict[str, str]:
 # opt-in: only run in repos that have a .ai-review marker file
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 if [ ! -f "$REPO_ROOT/.ai-review" ]; then
+    exit 0
+fi"""
+    return {
+        "pre-commit": f"""#!/usr/bin/env bash
+# Installed by ai-code-review
+{opt_in_check}
+{ai_review}
+""",
+        "commit-msg": f"""#!/usr/bin/env bash
+# Installed by ai-code-review
+{opt_in_check}
+{ai_review} check-commit --auto-accept "$1"
+""",
+    }
+
+
+def _generate_template_hook_scripts() -> dict[str, str]:
+    """Generate hook scripts that use git config --local for opt-in."""
+    ai_review = _resolve_ai_review_path()
+    opt_in_check = """\
+# opt-in: check git local config
+enabled=$(git config --local ai-review.enabled 2>/dev/null)
+if [ "$enabled" != "true" ]; then
     exit 0
 fi"""
     return {
