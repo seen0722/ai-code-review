@@ -6,6 +6,7 @@ from pathlib import Path
 
 import click
 from rich.console import Console
+from rich.markup import escape as rich_escape
 
 from .commit_check import check_commit_message
 from .config import DEFAULT_INCLUDE_EXTENSIONS, Config
@@ -54,7 +55,7 @@ def _build_provider(config: Config, cli_provider: str | None, cli_model: str | N
             auth_type=auth_type, auth_token=token,
         )
 
-    console.print(f"[bold red]Unknown provider: {provider_name}[/]")
+    console.print(f"[bold red]Unknown provider: {rich_escape(provider_name)}[/]")
     sys.exit(1)
 
 
@@ -88,12 +89,12 @@ def _review(ctx: click.Context) -> None:
     try:
         diff = get_staged_diff(extensions=extensions)
     except GitError as e:
-        console.print(f"[bold red]{e}[/]")
+        console.print(f"[bold red]{rich_escape(str(e))}[/]")
         sys.exit(1)
 
     if not diff:
         if extensions:
-            console.print(f"[dim]No staged changes matching {', '.join(f'.{e}' for e in extensions)}.[/]")
+            console.print(f"[dim]No staged changes matching {rich_escape(', '.join(f'.{e}' for e in extensions))}.[/]")
         else:
             console.print("[dim]No staged changes to review.[/]")
         return
@@ -128,7 +129,7 @@ def check_commit(ctx: click.Context, message_file: str | None, auto_accept: bool
     # Step 1: Format check
     result = check_commit_message(message)
     if not result.valid:
-        console.print(f"[bold red]{result.error}[/]")
+        console.print(f"[bold red]{rich_escape(result.error)}[/]")
         sys.exit(1)
     console.print("[green]Commit message format OK.[/]")
 
@@ -157,8 +158,8 @@ def check_commit(ctx: click.Context, message_file: str | None, auto_accept: bool
     improved = reviewer.improve_commit_message(message, diff)
 
     if improved and improved.strip() != message:
-        console.print(f"\n[dim]Original:[/]  {message}")
-        console.print(f"[bold]Suggested:[/] {improved}")
+        console.print(f"\n[dim]Original:[/]  {rich_escape(message)}")
+        console.print(f"[bold]Suggested:[/] {rich_escape(improved)}")
         if auto_accept or os.environ.get("AI_REVIEW_AUTO_ACCEPT") == "1":
             choice = "a"
             console.print("[dim](non-interactive: auto-accept)[/]")
@@ -193,7 +194,7 @@ def config_set(section: str, key: str, value: str) -> None:
     """Set a config value: ai-review config set <section> <key> <value>"""
     config = Config()
     config.set(section, key, value)
-    console.print(f"[green]Set {section}.{key} = {value}[/]")
+    console.print(f"[green]Set {rich_escape(section)}.{rich_escape(key)} = {rich_escape(value)}[/]")
 
 
 @config_group.command("get")

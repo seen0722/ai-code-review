@@ -4,6 +4,7 @@ import pytest
 from click.testing import CliRunner
 
 from ai_code_review.cli import main
+from ai_code_review.git import GitError
 from ai_code_review.llm.base import ReviewResult, ReviewIssue, Severity
 
 
@@ -47,6 +48,13 @@ class TestReviewCommand:
         assert result.exit_code == 0
         assert "no" in result.output.lower() and ("change" in result.output.lower() or "staged" in result.output.lower())
 
+
+    @patch("ai_code_review.cli.get_staged_diff")
+    def test_git_error_with_brackets_does_not_crash(self, mock_diff, runner):
+        mock_diff.side_effect = GitError("fatal: bad object [/<m>]")
+        result = runner.invoke(main, [])
+        assert result.exit_code == 1
+        assert "fatal: bad object" in result.output
 
     @patch("ai_code_review.cli.Config")
     @patch("ai_code_review.cli._build_provider")
