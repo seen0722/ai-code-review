@@ -305,15 +305,18 @@ def hook_install(global_install: bool, template_install: bool, hook_type: str | 
 
 @hook_group.command("uninstall")
 @click.option("--global", "global_uninstall", is_flag=True, help="Remove global hooks and core.hooksPath.")
+@click.option("--template", "template_uninstall", is_flag=True, help="Remove template hooks and init.templateDir.")
 @click.argument("hook_type", required=False, type=click.Choice(_HOOK_TYPES))
-def hook_uninstall(global_uninstall: bool, hook_type: str | None) -> None:
+def hook_uninstall(global_uninstall: bool, template_uninstall: bool, hook_type: str | None) -> None:
     """Uninstall git hooks."""
-    if global_uninstall:
+    if template_uninstall:
+        _uninstall_template_hooks()
+    elif global_uninstall:
         _uninstall_global_hooks()
     elif hook_type:
         _uninstall_repo_hook(hook_type)
     else:
-        console.print("[bold red]Specify a hook type or use --global.[/]")
+        console.print("[bold red]Specify a hook type, --global, or --template.[/]")
         sys.exit(1)
 
 
@@ -419,6 +422,25 @@ def _install_template_hooks() -> None:
     console.print("[dim]New clones will auto-copy hooks to .git/hooks/[/]")
     console.print("[dim]Existing repos: run 'git init' to copy hooks[/]")
     console.print("[dim]Enable a repo: git config --local ai-review.enabled true[/]")
+
+
+def _uninstall_template_hooks() -> None:
+    import subprocess
+
+    for hook_type in _HOOK_TYPES:
+        hook_path = _TEMPLATE_HOOKS_DIR / hook_type
+        if hook_path.exists():
+            hook_path.unlink()
+            console.print(f"  [green]Removed {hook_path}[/]")
+
+    try:
+        subprocess.run(
+            ["git", "config", "--global", "--unset", "init.templateDir"],
+            check=True, capture_output=True,
+        )
+        console.print("[green]Template hooks uninstalled (init.templateDir cleared).[/]")
+    except subprocess.CalledProcessError:
+        console.print("[dim]init.templateDir was not set.[/]")
 
 
 def _install_repo_hook(hook_type: str) -> None:

@@ -156,3 +156,24 @@ class TestTemplateHookInstall:
         for hook_type in ["pre-commit", "commit-msg"]:
             hook_path = fake_template_dir / hook_type
             assert hook_path.stat().st_mode & 0o755
+
+
+class TestTemplateHookUninstall:
+    def test_uninstalls_template_hooks(self, runner, tmp_path):
+        fake_template_dir = tmp_path / "template" / "hooks"
+        fake_template_dir.mkdir(parents=True)
+        (fake_template_dir / "pre-commit").write_text("#!/bin/sh\nai-review")
+        (fake_template_dir / "commit-msg").write_text("#!/bin/sh\nai-review check-commit")
+
+        with patch("ai_code_review.cli._TEMPLATE_HOOKS_DIR", fake_template_dir), \
+             patch("subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess([], 0)
+            result = runner.invoke(main, ["hook", "uninstall", "--template"])
+
+        assert result.exit_code == 0
+        assert not (fake_template_dir / "pre-commit").exists()
+        assert not (fake_template_dir / "commit-msg").exists()
+        mock_run.assert_called_once_with(
+            ["git", "config", "--global", "--unset", "init.templateDir"],
+            check=True, capture_output=True,
+        )
