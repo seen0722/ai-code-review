@@ -322,11 +322,33 @@ def hook_uninstall(global_uninstall: bool, template_uninstall: bool, hook_type: 
 
 @hook_group.command("status")
 def hook_status() -> None:
-    """Show installed hooks (global and current repo)."""
+    """Show installed hooks (template, global, and current repo)."""
     import subprocess
 
+    # Template hooks status
+    console.print("[bold]Template hooks:[/]")
+    try:
+        result = subprocess.run(
+            ["git", "config", "--global", "init.templateDir"],
+            capture_output=True, text=True,
+        )
+        template_path = result.stdout.strip()
+        if template_path:
+            console.print(f"  init.templateDir = {template_path}")
+            hooks_dir = Path(template_path) / "hooks"
+            for hook_type in _HOOK_TYPES:
+                hook_path = hooks_dir / hook_type
+                if hook_path.exists() and "ai-review" in hook_path.read_text():
+                    console.print(f"  [green]{hook_type}: installed[/]")
+                else:
+                    console.print(f"  [dim]{hook_type}: not installed[/]")
+        else:
+            console.print("  [dim]not configured[/]")
+    except Exception:
+        console.print("  [dim]not configured[/]")
+
     # Global hooks status
-    console.print("[bold]Global hooks:[/]")
+    console.print("\n[bold]Global hooks:[/]")
     try:
         result = subprocess.run(
             ["git", "config", "--global", "core.hooksPath"],
@@ -347,9 +369,21 @@ def hook_status() -> None:
     except Exception:
         console.print("  [dim]not configured[/]")
 
-    # Per-repo hooks status
-    console.print("\n[bold]Current repo hooks:[/]")
+    # Current repo status
+    console.print("\n[bold]Current repo:[/]")
     try:
+        # Check ai-review.enabled
+        result = subprocess.run(
+            ["git", "config", "--local", "ai-review.enabled"],
+            capture_output=True, text=True,
+        )
+        enabled = result.stdout.strip()
+        if enabled:
+            console.print(f"  ai-review.enabled = {enabled}")
+        else:
+            console.print("  [dim]ai-review.enabled: not set[/]")
+
+        # Check repo hooks
         hooks_dir = _get_repo_hooks_dir()
         for hook_type in _HOOK_TYPES:
             hook_path = hooks_dir / hook_type

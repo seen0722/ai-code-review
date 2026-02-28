@@ -98,18 +98,52 @@ class TestGlobalHookUninstall:
 
 
 class TestHookStatus:
-    def test_shows_global_and_repo_status(self, runner, git_repo):
+    def test_shows_all_three_sections(self, runner, git_repo):
         runner.invoke(main, ["hook", "install", "pre-commit"])
         result = runner.invoke(main, ["hook", "status"])
         assert result.exit_code == 0
+        assert "Template hooks" in result.output
         assert "Global hooks" in result.output
-        assert "Current repo hooks" in result.output
+        assert "Current repo" in result.output
         assert "installed" in result.output.lower()
 
     def test_shows_not_installed(self, runner, git_repo):
         result = runner.invoke(main, ["hook", "status"])
         assert result.exit_code == 0
         assert "not installed" in result.output.lower() or "not configured" in result.output.lower()
+
+
+class TestHookStatusTemplate:
+    def test_shows_template_status_when_configured(self, runner, git_repo, tmp_path):
+        fake_template_dir = tmp_path / "template" / "hooks"
+        fake_template_dir.mkdir(parents=True)
+        (fake_template_dir / "pre-commit").write_text("#!/bin/sh\nai-review")
+        (fake_template_dir / "commit-msg").write_text("#!/bin/sh\nai-review check-commit")
+
+        with patch("subprocess.run") as mock_run:
+            def side_effect(cmd, **kwargs):
+                if "init.templateDir" in cmd:
+                    return subprocess.CompletedProcess(cmd, 0, stdout=str(fake_template_dir.parent) + "\n")
+                if "core.hooksPath" in cmd:
+                    return subprocess.CompletedProcess(cmd, 1, stdout="")
+                if "ai-review.enabled" in cmd:
+                    return subprocess.CompletedProcess(cmd, 1, stdout="")
+                return subprocess.CompletedProcess(cmd, 0, stdout="")
+            mock_run.side_effect = side_effect
+            result = runner.invoke(main, ["hook", "status"])
+
+        assert result.exit_code == 0
+        assert "Template hooks" in result.output
+        assert "init.templateDir" in result.output
+
+    def test_shows_enabled_status(self, runner, git_repo):
+        subprocess.run(
+            ["git", "config", "--local", "ai-review.enabled", "true"],
+            cwd=git_repo, check=True,
+        )
+        result = runner.invoke(main, ["hook", "status"])
+        assert result.exit_code == 0
+        assert "ai-review.enabled = true" in result.output
 
 
 class TestTemplateHookScripts:
