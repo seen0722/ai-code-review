@@ -361,6 +361,47 @@ def hook_status() -> None:
         console.print("  [dim]not in a git repository[/]")
 
 
+@hook_group.command("enable")
+def hook_enable() -> None:
+    """Enable AI review for current repo (sets git config --local)."""
+    import subprocess
+
+    try:
+        from .git import _run_git
+        _run_git("rev-parse", "--git-dir")
+    except Exception:
+        console.print("[bold red]Not in a git repository.[/]")
+        sys.exit(1)
+
+    subprocess.run(
+        ["git", "config", "--local", "ai-review.enabled", "true"],
+        check=True,
+    )
+    console.print("[green]AI review enabled for this repo.[/]")
+
+
+@hook_group.command("disable")
+def hook_disable() -> None:
+    """Disable AI review for current repo (unsets git config --local)."""
+    import subprocess
+
+    try:
+        from .git import _run_git
+        _run_git("rev-parse", "--git-dir")
+    except Exception:
+        console.print("[bold red]Not in a git repository.[/]")
+        sys.exit(1)
+
+    try:
+        subprocess.run(
+            ["git", "config", "--local", "--unset", "ai-review.enabled"],
+            check=True, capture_output=True,
+        )
+        console.print("[green]AI review disabled for this repo.[/]")
+    except subprocess.CalledProcessError:
+        console.print("[dim]AI review was not enabled for this repo.[/]")
+
+
 def _install_global_hooks() -> None:
     import subprocess
 

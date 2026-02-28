@@ -177,3 +177,32 @@ class TestTemplateHookUninstall:
             ["git", "config", "--global", "--unset", "init.templateDir"],
             check=True, capture_output=True,
         )
+
+
+class TestHookEnableDisable:
+    def test_enable_sets_git_config(self, runner, git_repo):
+        result = runner.invoke(main, ["hook", "enable"])
+        assert result.exit_code == 0
+        config_result = subprocess.run(
+            ["git", "config", "--local", "ai-review.enabled"],
+            capture_output=True, text=True, cwd=git_repo,
+        )
+        assert config_result.stdout.strip() == "true"
+
+    def test_disable_unsets_git_config(self, runner, git_repo):
+        subprocess.run(
+            ["git", "config", "--local", "ai-review.enabled", "true"],
+            cwd=git_repo, check=True,
+        )
+        result = runner.invoke(main, ["hook", "disable"])
+        assert result.exit_code == 0
+        config_result = subprocess.run(
+            ["git", "config", "--local", "ai-review.enabled"],
+            capture_output=True, text=True, cwd=git_repo,
+        )
+        assert config_result.returncode != 0
+
+    def test_enable_not_in_git_repo(self, runner, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(main, ["hook", "enable"])
+        assert result.exit_code != 0
