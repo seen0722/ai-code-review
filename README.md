@@ -8,7 +8,7 @@ AI-powered code review CLI for Android BSP teams. Catches serious defects (memor
 - **Commit message enforcement** — Validates `[PROJECT-NUMBER] description` format
 - **AI commit message improvement** — Fixes English grammar and clarifies descriptions
 - **Multiple LLM backends** — Ollama (local), enterprise internal LLM, OpenAI
-- **Global hooks** — One command to enable across all repos (ideal for hundreds of repos)
+- **Template & global hooks** — One command to enable across all repos (ideal for hundreds of repos)
 - **Multiple output formats** — Terminal (colored), Markdown, JSON
 
 ## Installation
@@ -41,9 +41,21 @@ ai-review config set openai api_key_env OPENAI_API_KEY
 ai-review config set openai model gpt-4o
 ```
 
-### 2. Enable hooks globally (recommended)
+### 2. Enable hooks (recommended)
 
-One command sets up global git hooks:
+#### Template hooks (recommended for Android multi-repo teams)
+
+```bash
+ai-review hook install --template
+```
+
+New clones will auto-get hooks. For existing repos, run `git init` to pick up template hooks:
+
+```bash
+repo forall -c 'git init'    # Android repo projects
+```
+
+#### Global hooks (backward compatible)
 
 ```bash
 ai-review hook install --global
@@ -53,19 +65,21 @@ Then **opt-in** each repo that needs AI review:
 
 ```bash
 cd /path/to/your-bsp-repo
-touch .ai-review
+ai-review hook enable
 ```
 
-Only repos with a `.ai-review` marker file will trigger the hooks. Other repos are completely unaffected. Every `git commit` in opted-in repos will automatically:
+Only repos with `ai-review.enabled = true` will trigger the hooks. Other repos are completely unaffected. Every `git commit` in opted-in repos will automatically:
 
 1. Run AI code review on staged changes (blocks on critical/error)
 2. Validate commit message format `[PROJECT-NUMBER] description`
 3. Suggest AI-powered grammar/clarity improvements (auto-accepted)
 
-Batch enable for multiple repos:
+Enable/disable repos:
 
 ```bash
-for repo in repo1 repo2 repo3; do touch /path/to/$repo/.ai-review; done
+ai-review hook enable                        # enable current repo
+ai-review hook disable                       # disable current repo
+repo forall -c 'ai-review hook enable'       # batch enable (Android repo)
 ```
 
 ### 3. Review code manually
@@ -79,7 +93,30 @@ ai-review --format json           # structured JSON
 
 ## Hook Setup
 
-### Global hooks (recommended for multi-repo teams)
+### Template hooks (recommended for Android multi-repo teams)
+
+Uses `init.templateDir` — new clones auto-get hooks, existing repos need `git init`:
+
+```bash
+# Install
+ai-review hook install --template
+
+# Apply to existing repos
+repo forall -c 'git init'
+
+# Enable AI review per repo
+ai-review hook enable
+
+# Check status
+ai-review hook status
+
+# Uninstall
+ai-review hook uninstall --template
+```
+
+### Global hooks (backward compatible)
+
+Uses `core.hooksPath` — overrides hooks path for all repos:
 
 ```bash
 # Install — enables hooks for ALL repos
@@ -92,16 +129,18 @@ ai-review hook status
 ai-review hook uninstall --global
 ```
 
-**Managing exceptions:**
+**Managing repos:**
 
 ```bash
-# Disable for a single repo
-cd /path/to/repo
-git config core.hooksPath .git/hooks
+# Enable/disable AI review for a repo
+ai-review hook enable
+ai-review hook disable
 
 # Skip hooks for a single commit
 git commit --no-verify
 ```
+
+> Note: `--global` and `--template` cannot be used together.
 
 ### Per-repo hooks
 

@@ -14,7 +14,7 @@ Designed for teams that push directly to main across hundreds of internal GitLab
 # Setup (virtual env at .venv/)
 pip install -e ".[dev]"
 
-# Tests (88 tests, pytest + respx + pytest-mock)
+# Tests (101 tests, pytest + respx + pytest-mock)
 pytest                            # run all
 pytest tests/test_cli.py -v       # single file
 pytest -k "test_healthy" -v       # pattern match
@@ -30,13 +30,17 @@ ai-review config set <section> <key> <value>
 ai-review config get <section> <key>
 
 # Hook management
-ai-review hook install --global    # global hooks for ALL repos (recommended)
+ai-review hook install --template  # template hooks via init.templateDir (recommended for Android)
+ai-review hook uninstall --template # remove template hooks
+ai-review hook install --global    # global hooks via core.hooksPath (backward compatible)
 ai-review hook uninstall --global  # remove global hooks
 ai-review hook install pre-commit  # per-repo hook
 ai-review hook install commit-msg  # per-repo hook
 ai-review hook uninstall pre-commit
 ai-review hook uninstall commit-msg
-ai-review hook status              # show global + per-repo hook status
+ai-review hook enable              # enable ai-review for current repo (git config --local)
+ai-review hook disable             # disable ai-review for current repo
+ai-review hook status              # show template + global + per-repo hook status
 ```
 
 ## Architecture
@@ -77,7 +81,18 @@ check-commit flow:
 
 ## Hook Deployment
 
-### Global hooks with opt-in (recommended for multi-repo teams)
+### Strategy A: Template hooks (recommended for Android multi-repo teams)
+- `ai-review hook install --template` creates scripts at `~/.config/ai-code-review/template/hooks/`
+- Sets `git config --global init.templateDir` → new clones auto-get hooks in `.git/hooks/`
+- Existing repos need `git init` to pick up template hooks
+- **Opt-in mechanism**: hooks only activate in repos with `git config --local ai-review.enabled true`
+- Enable a repo: `ai-review hook enable`
+- Disable a repo: `ai-review hook disable`
+- Hook scripts use absolute path to `ai-review` executable (resolved at install time)
+- Uninstall: `ai-review hook uninstall --template`
+- `--global` and `--template` cannot be used together; warning if `core.hooksPath` is set when installing `--template`
+
+### Strategy B: Global hooks with opt-in (backward compatible)
 - `ai-review hook install --global` creates scripts at `~/.config/ai-code-review/hooks/`
 - Sets `git config --global core.hooksPath` → hooks are registered for all repos
 - **Opt-in mechanism**: hooks only activate in repos with a `.ai-review` marker file at repo root
@@ -102,7 +117,7 @@ check-commit flow:
 - **Severity blocking**: `Severity.blocks` property — `critical`/`error` return True (block commit), `warning`/`info` return False.
 - **Prompt templates** in `prompts.py`: review prompt focuses on memory leaks, null pointer, race conditions, hardcoded secrets, buffer overflow. Explicitly excludes style/naming/refactoring suggestions.
 - **Non-interactive mode**: `--auto-accept` flag or `AI_REVIEW_AUTO_ACCEPT=1` env var skips interactive prompt in commit-msg hook, auto-accepts AI suggestion.
-- **Opt-in marker**: global hooks check for `.ai-review` file at repo root; repos without it are skipped entirely.
+- **Opt-in mechanism**: template hooks check `git config --local ai-review.enabled` (no repo file pollution); global hooks check for `.ai-review` marker file at repo root. Repos without opt-in are skipped entirely.
 - **File extension filter**: `review.include_extensions` config (default: `c,cpp,h,hpp,java`); only matching files are sent to LLM.
 
 ## Testing Conventions
