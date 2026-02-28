@@ -8,7 +8,7 @@ AI-powered code review CLI for Android BSP teams. Catches serious defects (memor
 - **Commit message enforcement** — Validates `[PROJECT-NUMBER] description` format
 - **AI commit message improvement** — Fixes English grammar and clarifies descriptions
 - **Multiple LLM backends** — Ollama (local), enterprise internal LLM, OpenAI
-- **Template & global hooks** — One command to enable across all repos (ideal for hundreds of repos)
+- **Template hooks** — One command to enable across all repos via `init.templateDir`
 - **Multiple output formats** — Terminal (colored), Markdown, JSON
 
 ## Installation
@@ -41,40 +41,21 @@ ai-review config set openai api_key_env OPENAI_API_KEY
 ai-review config set openai model gpt-4o
 ```
 
-### 2. Enable hooks (recommended)
-
-#### Template hooks (recommended for Android multi-repo teams)
+### 2. Install hooks
 
 ```bash
 ai-review hook install --template
 ```
 
-New clones will auto-get hooks. For existing repos, run `git init` to pick up template hooks:
+This sets `init.templateDir` so new clones auto-get hooks. For existing repos:
 
 ```bash
 repo forall -c 'git init'    # Android repo projects
 ```
 
-#### Global hooks (backward compatible)
+### 3. Enable repos (opt-in)
 
-```bash
-ai-review hook install --global
-```
-
-Then **opt-in** each repo that needs AI review:
-
-```bash
-cd /path/to/your-bsp-repo
-ai-review hook enable
-```
-
-Only repos with `ai-review.enabled = true` will trigger the hooks. Other repos are completely unaffected. Every `git commit` in opted-in repos will automatically:
-
-1. Run AI code review on staged changes (blocks on critical/error)
-2. Validate commit message format `[PROJECT-NUMBER] description`
-3. Suggest AI-powered grammar/clarity improvements (auto-accepted)
-
-Enable/disable repos:
+Hooks only activate in repos with `ai-review.enabled = true` (stored in `.git/config`, no repo file pollution):
 
 ```bash
 ai-review hook enable                        # enable current repo
@@ -82,7 +63,13 @@ ai-review hook disable                       # disable current repo
 repo forall -c 'ai-review hook enable'       # batch enable (Android repo)
 ```
 
-### 3. Review code manually
+Every `git commit` in enabled repos will automatically:
+
+1. Run AI code review on staged changes (blocks on critical/error)
+2. Validate commit message format `[PROJECT-NUMBER] description`
+3. Improve English grammar/clarity via AI (auto-accepted)
+
+### 4. Review code manually
 
 ```bash
 git add -A
@@ -91,67 +78,26 @@ ai-review --format markdown       # markdown report
 ai-review --format json           # structured JSON
 ```
 
-## Hook Setup
-
-### Template hooks (recommended for Android multi-repo teams)
-
-Uses `init.templateDir` — new clones auto-get hooks, existing repos need `git init`:
+## Hook Management
 
 ```bash
-# Install
-ai-review hook install --template
+# Template hooks (recommended)
+ai-review hook install --template      # install via init.templateDir
+ai-review hook uninstall --template    # remove template hooks
 
-# Apply to existing repos
-repo forall -c 'git init'
-
-# Enable AI review per repo
-ai-review hook enable
-
-# Check status
-ai-review hook status
-
-# Uninstall
-ai-review hook uninstall --template
-```
-
-### Global hooks (backward compatible)
-
-Uses `core.hooksPath` — overrides hooks path for all repos:
-
-```bash
-# Install — enables hooks for ALL repos
-ai-review hook install --global
-
-# Check status
-ai-review hook status
-
-# Uninstall — removes hooks and restores default behavior
-ai-review hook uninstall --global
-```
-
-**Managing repos:**
-
-```bash
-# Enable/disable AI review for a repo
-ai-review hook enable
-ai-review hook disable
-
-# Skip hooks for a single commit
-git commit --no-verify
-```
-
-> Note: `--global` and `--template` cannot be used together.
-
-### Per-repo hooks
-
-```bash
-# Install hooks for current repo only
-ai-review hook install pre-commit
+# Per-repo hooks
+ai-review hook install pre-commit      # install for current repo only
 ai-review hook install commit-msg
-
-# Uninstall
 ai-review hook uninstall pre-commit
 ai-review hook uninstall commit-msg
+
+# Opt-in control
+ai-review hook enable                  # enable current repo
+ai-review hook disable                 # disable current repo
+ai-review hook status                  # show hook status
+
+# Skip hooks for a single commit
+git commit --no-verify -m "[HOTFIX-001] emergency fix"
 ```
 
 ### pre-commit framework
@@ -166,12 +112,6 @@ repos:
       - id: ai-review-commit-msg
       - id: ai-review-code
         args: ["--provider", "ollama"]
-```
-
-Then install:
-
-```bash
-pre-commit install --hook-type pre-commit --hook-type commit-msg
 ```
 
 ## Commit Message Format
