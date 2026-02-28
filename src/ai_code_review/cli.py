@@ -292,6 +292,9 @@ def hook_group() -> None:
 @click.argument("hook_type", required=False, type=click.Choice(_HOOK_TYPES))
 def hook_install(global_install: bool, template_install: bool, hook_type: str | None) -> None:
     """Install git hooks. Use --template for Android multi-repo teams."""
+    if global_install and template_install:
+        console.print("[bold red]Cannot use --global and --template together.[/]")
+        sys.exit(1)
     if template_install:
         _install_template_hooks()
     elif global_install:
@@ -309,6 +312,9 @@ def hook_install(global_install: bool, template_install: bool, hook_type: str | 
 @click.argument("hook_type", required=False, type=click.Choice(_HOOK_TYPES))
 def hook_uninstall(global_uninstall: bool, template_uninstall: bool, hook_type: str | None) -> None:
     """Uninstall git hooks."""
+    if global_uninstall and template_uninstall:
+        console.print("[bold red]Cannot use --global and --template together.[/]")
+        sys.exit(1)
     if template_uninstall:
         _uninstall_template_hooks()
     elif global_uninstall:
@@ -478,6 +484,16 @@ def _uninstall_global_hooks() -> None:
 
 def _install_template_hooks() -> None:
     import subprocess
+
+    # Check for conflicting core.hooksPath
+    check = subprocess.run(
+        ["git", "config", "--global", "core.hooksPath"],
+        capture_output=True, text=True,
+    )
+    if check.stdout.strip():
+        console.print(f"[bold yellow]Warning: core.hooksPath is set to {check.stdout.strip()}[/]")
+        console.print("[yellow]core.hooksPath overrides .git/hooks/ — template hooks won't run.[/]")
+        console.print("[yellow]Run 'ai-review hook uninstall --global' first.[/]")
 
     hook_scripts = _generate_template_hook_scripts()
     _TEMPLATE_HOOKS_DIR.mkdir(parents=True, exist_ok=True)

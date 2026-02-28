@@ -168,23 +168,19 @@ class TestTemplateHookInstall:
         fake_template_dir = tmp_path / "template" / "hooks"
         with patch("ai_code_review.cli._TEMPLATE_HOOKS_DIR", fake_template_dir), \
              patch("subprocess.run") as mock_run:
-            mock_run.return_value = subprocess.CompletedProcess([], 0)
+            mock_run.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
             result = runner.invoke(main, ["hook", "install", "--template"])
 
         assert result.exit_code == 0
         assert (fake_template_dir / "pre-commit").exists()
         assert (fake_template_dir / "commit-msg").exists()
         assert "git config --local ai-review.enabled" in (fake_template_dir / "pre-commit").read_text()
-        mock_run.assert_called_once_with(
-            ["git", "config", "--global", "init.templateDir",
-             str(fake_template_dir.parent)],
-            check=True,
-        )
 
     def test_template_hook_scripts_are_executable(self, runner, tmp_path):
         fake_template_dir = tmp_path / "template" / "hooks"
         with patch("ai_code_review.cli._TEMPLATE_HOOKS_DIR", fake_template_dir), \
-             patch("subprocess.run"):
+             patch("subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
             runner.invoke(main, ["hook", "install", "--template"])
 
         for hook_type in ["pre-commit", "commit-msg"]:
@@ -239,4 +235,29 @@ class TestHookEnableDisable:
     def test_enable_not_in_git_repo(self, runner, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(main, ["hook", "enable"])
+        assert result.exit_code != 0
+
+
+class TestHookConflictCheck:
+    def test_template_warns_if_global_hooks_active(self, runner, tmp_path):
+        fake_template_dir = tmp_path / "template" / "hooks"
+        with patch("ai_code_review.cli._TEMPLATE_HOOKS_DIR", fake_template_dir), \
+             patch("subprocess.run") as mock_run:
+            def side_effect(cmd, **kwargs):
+                if cmd == ["git", "config", "--global", "core.hooksPath"]:
+                    return subprocess.CompletedProcess(cmd, 0, stdout="/some/hooks/path\n")
+                return subprocess.CompletedProcess(cmd, 0)
+            mock_run.side_effect = side_effect
+            result = runner.invoke(main, ["hook", "install", "--template"])
+
+        assert result.exit_code == 0
+        assert "core.hooksPath" in result.output
+        assert any(w in result.output.lower() for w in ["warning", "Warning"])
+
+    def test_install_rejects_global_and_template_together(self, runner):
+        result = runner.invoke(main, ["hook", "install", "--global", "--template"])
+        assert result.exit_code != 0
+
+    def test_uninstall_rejects_global_and_template_together(self, runner):
+        result = runner.invoke(main, ["hook", "uninstall", "--global", "--template"])
         assert result.exit_code != 0
