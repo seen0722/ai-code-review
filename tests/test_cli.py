@@ -162,6 +162,52 @@ class TestDiffTruncation:
         assert "truncated" not in diff_arg.lower()
 
 
+class TestHealthCheckCommand:
+    @patch("ai_code_review.cli.Config")
+    @patch("ai_code_review.cli._build_provider")
+    def test_healthy_provider(self, mock_build, mock_config_cls, runner):
+        mock_config = MagicMock()
+        mock_config.resolve_provider.return_value = "ollama"
+        mock_config.get.side_effect = lambda s, k: {
+            ("ollama", "model"): "codellama",
+        }.get((s, k))
+        mock_config_cls.return_value = mock_config
+        mock_provider = MagicMock()
+        mock_provider.health_check.return_value = (True, "Connected")
+        mock_build.return_value = mock_provider
+
+        result = runner.invoke(main, ["health-check"])
+        assert result.exit_code == 0
+        assert "ok" in result.output.lower() or "connected" in result.output.lower()
+
+    @patch("ai_code_review.cli.Config")
+    @patch("ai_code_review.cli._build_provider")
+    def test_unhealthy_provider(self, mock_build, mock_config_cls, runner):
+        mock_config = MagicMock()
+        mock_config.resolve_provider.return_value = "ollama"
+        mock_config.get.side_effect = lambda s, k: {
+            ("ollama", "model"): "codellama",
+        }.get((s, k))
+        mock_config_cls.return_value = mock_config
+        mock_provider = MagicMock()
+        mock_provider.health_check.return_value = (False, "Connection refused: http://localhost:11434")
+        mock_build.return_value = mock_provider
+
+        result = runner.invoke(main, ["health-check"])
+        assert result.exit_code == 1
+        assert "failed" in result.output.lower() or "connection refused" in result.output.lower()
+
+    @patch("ai_code_review.cli.Config")
+    def test_no_provider_configured(self, mock_config_cls, runner):
+        mock_config = MagicMock()
+        mock_config_cls.return_value = mock_config
+
+        with patch("ai_code_review.cli._build_provider", side_effect=ProviderNotConfiguredError("No provider configured")):
+            result = runner.invoke(main, ["health-check"])
+        assert result.exit_code == 1
+        assert "no provider" in result.output.lower()
+
+
 class TestBuildProvider:
     def test_raises_when_no_provider(self):
         from ai_code_review.cli import _build_provider

@@ -204,6 +204,32 @@ def check_commit(ctx: click.Context, message_file: str | None, auto_accept: bool
         # "s" → do nothing, keep original
 
 
+@main.command("health-check")
+@click.pass_context
+def health_check_cmd(ctx: click.Context) -> None:
+    """Check LLM provider connectivity."""
+    config = Config()
+    cli_provider = ctx.obj.get("cli_provider") if ctx.obj else None
+    cli_model = ctx.obj.get("cli_model") if ctx.obj else None
+
+    try:
+        provider = _build_provider(config, cli_provider, cli_model)
+    except ProviderNotConfiguredError as e:
+        console.print(f"[bold red]{rich_escape(str(e))}[/]")
+        sys.exit(1)
+
+    provider_name = config.resolve_provider(cli_provider)
+    model = cli_model or config.get(provider_name, "model") or "default"
+    console.print(f"Provider: {rich_escape(provider_name)} ({rich_escape(model)})")
+
+    ok, msg = provider.health_check()
+    if ok:
+        console.print(f"[green]Status: OK ({rich_escape(msg)})[/]")
+    else:
+        console.print(f"[bold red]Status: FAILED — {rich_escape(msg)}[/]")
+        sys.exit(1)
+
+
 @main.group("config")
 def config_group() -> None:
     """Manage configuration."""
