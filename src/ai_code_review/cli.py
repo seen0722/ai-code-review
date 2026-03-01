@@ -11,7 +11,7 @@ from rich.markup import escape as rich_escape
 
 from .commit_check import check_commit_message
 from .config import DEFAULT_INCLUDE_EXTENSIONS, DEFAULT_MAX_DIFF_LINES, Config
-from .exceptions import ProviderNotConfiguredError
+from .exceptions import ProviderError, ProviderNotConfiguredError
 from .formatters import format_json, format_markdown, format_terminal
 from .git import GitError, get_staged_diff
 from .llm.base import LLMProvider
@@ -75,13 +75,15 @@ def _build_provider(config: Config, cli_provider: str | None, cli_model: str | N
 @click.option("--model", "cli_model", default=None, help="Model name")
 @click.option("--format", "output_format", default="terminal", type=click.Choice(["terminal", "markdown", "json"]))
 @click.option("--verbose", "-v", is_flag=True, help="Enable debug logging.")
+@click.option("--graceful", is_flag=True, help="Don't block on LLM failures (exit 0 instead of 1).")
 @click.pass_context
-def main(ctx: click.Context, cli_provider: str | None, cli_model: str | None, output_format: str, verbose: bool) -> None:
+def main(ctx: click.Context, cli_provider: str | None, cli_model: str | None, output_format: str, verbose: bool, graceful: bool) -> None:
     """AI-powered code review for Android BSP teams."""
     ctx.ensure_object(dict)
     ctx.obj["cli_provider"] = cli_provider
     ctx.obj["cli_model"] = cli_model
     ctx.obj["output_format"] = output_format
+    ctx.obj["graceful"] = graceful
 
     if verbose:
         import logging
@@ -97,6 +99,7 @@ def _review(ctx: click.Context) -> None:
     cli_provider = ctx.obj["cli_provider"]
     cli_model = ctx.obj["cli_model"]
     output_format = ctx.obj["output_format"]
+    graceful = ctx.obj.get("graceful", False)
 
     ext_raw = config.get("review", "include_extensions")
     if ext_raw is None:
@@ -131,9 +134,22 @@ def _review(ctx: click.Context) -> None:
     except ProviderNotConfiguredError as e:
         console.print(f"[bold red]{rich_escape(str(e))}[/]")
         sys.exit(1)
+    except ProviderError as e:
+        if graceful:
+            console.print(f"[yellow]Warning: LLM provider error: {rich_escape(str(e))}[/]")
+            return
+        console.print(f"[bold red]{rich_escape(str(e))}[/]")
+        sys.exit(1)
 
     reviewer = Reviewer(provider=provider)
-    result = reviewer.review_diff(diff, custom_rules=custom_rules)
+    try:
+        result = reviewer.review_diff(diff, custom_rules=custom_rules)
+    except ProviderError as e:
+        if graceful:
+            console.print(f"[yellow]Warning: LLM provider error: {rich_escape(str(e))}[/]")
+            return
+        console.print(f"[bold red]{rich_escape(str(e))}[/]")
+        sys.exit(1)
 
     formatters = {"terminal": format_terminal, "markdown": format_markdown, "json": format_json}
     output = formatters[output_format](result)
@@ -184,8 +200,17 @@ def check_commit(ctx: click.Context, message_file: str | None, auto_accept: bool
     if not diff:
         return
 
+    graceful = ctx.obj.get("graceful", False) if ctx.obj else False
+
     reviewer = Reviewer(provider=provider)
-    improved = reviewer.improve_commit_message(message, diff)
+    try:
+        improved = reviewer.improve_commit_message(message, diff)
+    except ProviderError as e:
+        if graceful:
+            console.print(f"[yellow]Warning: LLM provider error: {rich_escape(str(e))}[/]")
+        else:
+            console.print(f"[bold red]{rich_escape(str(e))}[/]")
+        return
 
     if improved and improved.strip() != message:
         console.print(f"\n[dim]Original:[/]  {rich_escape(message)}")
@@ -334,12 +359,12 @@ fi"""
         "pre-commit": f"""#!/usr/bin/env bash
 # Installed by ai-code-review
 {opt_in_check}
-{ai_review}
+{ai_review} --graceful
 """,
         "commit-msg": f"""#!/usr/bin/env bash
 # Installed by ai-code-review
 {opt_in_check}
-{ai_review} check-commit --auto-accept "$1"
+{ai_review} --graceful check-commit --auto-accept "$1"
 """,
     }
 
@@ -357,12 +382,12 @@ fi"""
         "pre-commit": f"""#!/usr/bin/env bash
 # Installed by ai-code-review
 {opt_in_check}
-{ai_review}
+{ai_review} --graceful
 """,
         "commit-msg": f"""#!/usr/bin/env bash
 # Installed by ai-code-review
 {opt_in_check}
-{ai_review} check-commit --auto-accept "$1"
+{ai_review} --graceful check-commit --auto-accept "$1"
 """,
     }
 

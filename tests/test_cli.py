@@ -5,7 +5,7 @@ import pytest
 from click.testing import CliRunner
 
 from ai_code_review.cli import main
-from ai_code_review.exceptions import ProviderNotConfiguredError
+from ai_code_review.exceptions import ProviderError, ProviderNotConfiguredError
 from ai_code_review.git import GitError
 from ai_code_review.llm.base import ReviewResult, ReviewIssue, Severity
 
@@ -294,3 +294,91 @@ class TestVerboseFlag:
         result = runner.invoke(main, [], input="")
         # Without -v, logger should not be DEBUG
         assert logger.level != logging.DEBUG
+
+
+class TestGracefulFlag:
+    @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_staged_diff")
+    def test_graceful_provider_error_exits_0(self, mock_diff, mock_build, runner):
+        mock_diff.return_value = "some diff"
+        mock_build.side_effect = ProviderError("Connection refused")
+        result = runner.invoke(main, ["--graceful"])
+        assert result.exit_code == 0
+        assert "warning" in result.output.lower()
+
+    @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_staged_diff")
+    def test_no_graceful_provider_error_exits_1(self, mock_diff, mock_build, runner):
+        mock_diff.return_value = "some diff"
+        mock_build.side_effect = ProviderError("Connection refused")
+        result = runner.invoke(main, [])
+        assert result.exit_code == 1
+
+    @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_staged_diff")
+    def test_graceful_still_blocks_on_review_issues(self, mock_diff, mock_build, runner):
+        mock_diff.return_value = "some diff"
+        mock_provider = MagicMock()
+        mock_provider.review_code.return_value = ReviewResult(issues=[
+            ReviewIssue(severity=Severity.CRITICAL, file="a.c", line=1, message="leak"),
+        ])
+        mock_build.return_value = mock_provider
+        result = runner.invoke(main, ["--graceful"])
+        assert result.exit_code == 1
+
+    @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_staged_diff")
+    def test_graceful_review_provider_error_during_review(self, mock_diff, mock_build, runner):
+        mock_diff.return_value = "some diff"
+        mock_provider = MagicMock()
+        mock_provider.review_code.side_effect = ProviderError("timeout")
+        mock_build.return_value = mock_provider
+        result = runner.invoke(main, ["--graceful"])
+        assert result.exit_code == 0
+        assert "warning" in result.output.lower()
+
+    @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_staged_diff")
+    def test_no_graceful_review_provider_error_during_review_exits_1(self, mock_diff, mock_build, runner):
+        mock_diff.return_value = "some diff"
+        mock_provider = MagicMock()
+        mock_provider.review_code.side_effect = ProviderError("timeout")
+        mock_build.return_value = mock_provider
+        result = runner.invoke(main, [])
+        assert result.exit_code == 1
+
+
+class TestGracefulCheckCommit:
+    @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_staged_diff")
+    def test_graceful_check_commit_format_still_blocks(self, mock_diff, mock_build, runner, tmp_path):
+        msg_file = tmp_path / "COMMIT_EDITMSG"
+        msg_file.write_text("bad format")
+        result = runner.invoke(main, ["--graceful", "check-commit", str(msg_file)])
+        assert result.exit_code == 1
+
+    @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_staged_diff")
+    def test_graceful_check_commit_llm_failure_skips_improvement(self, mock_diff, mock_build, runner, tmp_path):
+        mock_diff.return_value = "some diff"
+        mock_provider = MagicMock()
+        mock_provider.improve_commit_msg.side_effect = ProviderError("timeout")
+        mock_build.return_value = mock_provider
+        msg_file = tmp_path / "COMMIT_EDITMSG"
+        msg_file.write_text("[BSP-123] fix something")
+        result = runner.invoke(main, ["--graceful", "check-commit", str(msg_file)])
+        assert result.exit_code == 0
+        assert "warning" in result.output.lower()
+
+    @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_staged_diff")
+    def test_no_graceful_check_commit_llm_failure_does_not_block(self, mock_diff, mock_build, runner, tmp_path):
+        """Without --graceful, LLM failure in check-commit still exits 0 (doesn't block commit)."""
+        mock_diff.return_value = "some diff"
+        mock_provider = MagicMock()
+        mock_provider.improve_commit_msg.side_effect = ProviderError("timeout")
+        mock_build.return_value = mock_provider
+        msg_file = tmp_path / "COMMIT_EDITMSG"
+        msg_file.write_text("[BSP-123] fix something")
+        result = runner.invoke(main, ["check-commit", str(msg_file)])
+        assert result.exit_code == 0

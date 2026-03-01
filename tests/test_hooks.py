@@ -238,6 +238,20 @@ class TestHookEnableDisable:
         assert result.exit_code != 0
 
 
+class TestHookScriptsUseGraceful:
+    def test_global_hook_scripts_use_graceful(self):
+        from ai_code_review.cli import _generate_hook_scripts
+        scripts = _generate_hook_scripts()
+        for hook_type in ["pre-commit", "commit-msg"]:
+            assert "--graceful" in scripts[hook_type]
+
+    def test_template_hook_scripts_use_graceful(self):
+        from ai_code_review.cli import _generate_template_hook_scripts
+        scripts = _generate_template_hook_scripts()
+        for hook_type in ["pre-commit", "commit-msg"]:
+            assert "--graceful" in scripts[hook_type]
+
+
 class TestHookConflictCheck:
     def test_template_warns_if_global_hooks_active(self, runner, tmp_path):
         fake_template_dir = tmp_path / "template" / "hooks"
