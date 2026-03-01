@@ -7,9 +7,9 @@ from ..prompts import REVIEW_RESPONSE_SCHEMA, get_commit_improve_prompt
 
 
 class OpenAIProvider(LLMProvider):
-    def __init__(self, api_key: str, model: str = "gpt-4o", base_url: str | None = None) -> None:
+    def __init__(self, api_key: str, model: str = "gpt-4o", base_url: str | None = None, timeout: float = 120.0) -> None:
         self._model = model
-        self._client = OpenAI(api_key=api_key, base_url=base_url)
+        self._client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout, max_retries=3)
 
     def health_check(self) -> tuple[bool, str]:
         try:

@@ -34,7 +34,8 @@ def _build_provider(config: Config, cli_provider: str | None, cli_model: str | N
     if provider_name == "ollama":
         base_url = config.get("ollama", "base_url") or "http://localhost:11434"
         model = cli_model or config.get("ollama", "model") or "codellama"
-        return OllamaProvider(base_url=base_url, model=model)
+        timeout = float(config.get("ollama", "timeout") or 120)
+        return OllamaProvider(base_url=base_url, model=model, timeout=timeout)
 
     elif provider_name == "openai":
         token = config.resolve_token("openai")
@@ -46,7 +47,8 @@ def _build_provider(config: Config, cli_provider: str | None, cli_model: str | N
             )
         model = cli_model or config.get("openai", "model") or "gpt-4o"
         base_url = config.get("openai", "base_url")
-        return OpenAIProvider(api_key=token, model=model, base_url=base_url)
+        timeout = float(config.get("openai", "timeout") or 120)
+        return OpenAIProvider(api_key=token, model=model, base_url=base_url, timeout=timeout)
 
     elif provider_name == "enterprise":
         token = config.resolve_token("enterprise") or ""
@@ -59,9 +61,10 @@ def _build_provider(config: Config, cli_provider: str | None, cli_model: str | N
         api_path = config.get("enterprise", "api_path") or "/v1/chat/completions"
         model = cli_model or config.get("enterprise", "model") or "default"
         auth_type = config.get("enterprise", "auth_type") or "bearer"
+        timeout = float(config.get("enterprise", "timeout") or 120)
         return EnterpriseProvider(
             base_url=base_url, api_path=api_path, model=model,
-            auth_type=auth_type, auth_token=token,
+            auth_type=auth_type, auth_token=token, timeout=timeout,
         )
 
     raise ProviderNotConfiguredError(f"Unknown provider: {provider_name}")

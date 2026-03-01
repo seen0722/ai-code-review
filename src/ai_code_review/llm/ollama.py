@@ -5,12 +5,15 @@ import httpx
 from .base import LLMProvider, ReviewResult
 from ..prompts import REVIEW_RESPONSE_SCHEMA, get_commit_improve_prompt
 
+_DEFAULT_TIMEOUT = 120.0
+
 
 class OllamaProvider(LLMProvider):
-    def __init__(self, base_url: str, model: str) -> None:
+    def __init__(self, base_url: str, model: str, timeout: float = _DEFAULT_TIMEOUT) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model
-        self._client = httpx.Client(timeout=120.0)
+        transport = httpx.HTTPTransport(retries=3)
+        self._client = httpx.Client(timeout=timeout, transport=transport)
 
     def health_check(self) -> tuple[bool, str]:
         try:

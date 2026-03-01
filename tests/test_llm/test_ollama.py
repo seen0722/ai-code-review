@@ -157,3 +157,13 @@ class TestParseReviewEdgeCases:
         )
         result = provider.review_code("diff", "prompt")
         assert len(result.issues) == 0
+
+
+class TestOllamaTimeout:
+    def test_default_timeout(self):
+        p = OllamaProvider(base_url="http://localhost:11434", model="codellama")
+        assert p._client.timeout.connect == 120.0
+
+    def test_custom_timeout(self):
+        p = OllamaProvider(base_url="http://localhost:11434", model="codellama", timeout=30)
+        assert p._client.timeout.connect == 30.0

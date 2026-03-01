@@ -75,3 +75,19 @@ class TestEnterpriseImproveCommitMsg:
         )
         result = provider.improve_commit_msg("[BSP-1] bad msg", "diff")
         assert result == "[BSP-1] improved message"
+
+
+class TestEnterpriseTimeout:
+    def test_default_timeout(self):
+        p = EnterpriseProvider(
+            base_url="https://llm.example.com", api_path="/v1/chat/completions",
+            model="model", auth_type="bearer", auth_token="tok",
+        )
+        assert p._client.timeout.connect == 120.0
+
+    def test_custom_timeout(self):
+        p = EnterpriseProvider(
+            base_url="https://llm.example.com", api_path="/v1/chat/completions",
+            model="model", auth_type="bearer", auth_token="tok", timeout=60,
+        )
+        assert p._client.timeout.connect == 60.0

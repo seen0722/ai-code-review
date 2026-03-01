@@ -5,6 +5,8 @@ import httpx
 from .base import LLMProvider, ReviewResult
 from ..prompts import REVIEW_RESPONSE_SCHEMA, get_commit_improve_prompt
 
+_DEFAULT_TIMEOUT = 120.0
+
 
 class EnterpriseProvider(LLMProvider):
     def __init__(
@@ -14,12 +16,14 @@ class EnterpriseProvider(LLMProvider):
         model: str,
         auth_type: str = "bearer",
         auth_token: str = "",
+        timeout: float = _DEFAULT_TIMEOUT,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_path = api_path
         self._model = model
         self._headers = self._build_auth_headers(auth_type, auth_token)
-        self._client = httpx.Client(timeout=120.0, headers=self._headers)
+        transport = httpx.HTTPTransport(retries=3)
+        self._client = httpx.Client(timeout=timeout, headers=self._headers, transport=transport)
 
     @staticmethod
     def _build_auth_headers(auth_type: str, token: str) -> dict[str, str]:
