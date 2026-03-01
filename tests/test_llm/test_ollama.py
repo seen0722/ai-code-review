@@ -6,6 +6,7 @@ import respx
 
 from ai_code_review.llm.ollama import OllamaProvider
 from ai_code_review.llm.base import Severity
+from ai_code_review.exceptions import ProviderError
 
 
 @pytest.fixture
@@ -157,6 +158,74 @@ class TestParseReviewEdgeCases:
         )
         result = provider.review_code("diff", "prompt")
         assert len(result.issues) == 0
+
+
+class TestOllamaChatErrorWrapping:
+    """_chat() errors should be wrapped in ProviderError."""
+
+    @respx.mock
+    def test_review_code_wraps_connection_error(self, provider):
+        respx.post("http://localhost:11434/api/chat").mock(
+            side_effect=httpx.ConnectError("Connection refused")
+        )
+        with pytest.raises(ProviderError, match="Ollama API request failed"):
+            provider.review_code("diff", "prompt")
+
+    @respx.mock
+    def test_improve_commit_msg_wraps_timeout_error(self, provider):
+        respx.post("http://localhost:11434/api/chat").mock(
+            side_effect=httpx.ReadTimeout("timed out")
+        )
+        with pytest.raises(ProviderError, match="Ollama API request failed"):
+            provider.improve_commit_msg("[BSP-1] msg", "diff")
+
+    @respx.mock
+    def test_wraps_http_status_error(self, provider):
+        respx.post("http://localhost:11434/api/chat").mock(
+            return_value=httpx.Response(500)
+        )
+        with pytest.raises(ProviderError, match="Ollama API request failed"):
+            provider.review_code("diff", "prompt")
+
+    @respx.mock
+    def test_wraps_malformed_response(self, provider):
+        """Missing expected keys in response JSON raises ProviderError."""
+        respx.post("http://localhost:11434/api/chat").mock(
+            return_value=httpx.Response(200, json={"unexpected": "structure"})
+        )
+        with pytest.raises(ProviderError, match="Ollama API request failed"):
+            provider.review_code("diff", "prompt")
+
+    @respx.mock
+    def test_original_exception_chained(self, provider):
+        respx.post("http://localhost:11434/api/chat").mock(
+            side_effect=httpx.ConnectError("Connection refused")
+        )
+        with pytest.raises(ProviderError) as exc_info:
+            provider.review_code("diff", "prompt")
+        assert exc_info.value.__cause__ is not None
+
+
+class TestOllamaGenerateCommitMsg:
+    @respx.mock
+    def test_generates_commit_message(self, provider):
+        respx.post("http://localhost:11434/api/chat").mock(
+            return_value=httpx.Response(200, json={
+                "message": {"content": "fix null pointer in camera init"}
+            })
+        )
+        result = provider.generate_commit_msg("+ if (ptr == NULL) return;")
+        assert result == "fix null pointer in camera init"
+
+    @respx.mock
+    def test_strips_whitespace(self, provider):
+        respx.post("http://localhost:11434/api/chat").mock(
+            return_value=httpx.Response(200, json={
+                "message": {"content": "  fix null pointer in camera init  \n"}
+            })
+        )
+        result = provider.generate_commit_msg("+ if (ptr == NULL) return;")
+        assert result == "fix null pointer in camera init"
 
 
 class TestOllamaTimeout:

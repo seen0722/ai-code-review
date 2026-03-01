@@ -3,7 +3,8 @@ from __future__ import annotations
 import httpx
 
 from .base import LLMProvider, ReviewResult
-from ..prompts import REVIEW_RESPONSE_SCHEMA, get_commit_improve_prompt
+from ..exceptions import ProviderError
+from ..prompts import REVIEW_RESPONSE_SCHEMA, get_commit_improve_prompt, get_generate_commit_prompt
 
 _DEFAULT_TIMEOUT = 120.0
 
@@ -37,14 +38,21 @@ class OllamaProvider(LLMProvider):
         prompt = get_commit_improve_prompt(message, diff)
         return self._chat(prompt).strip()
 
+    def generate_commit_msg(self, diff: str) -> str:
+        prompt = get_generate_commit_prompt(diff)
+        return self._chat(prompt).strip()
+
     def _chat(self, prompt: str) -> str:
-        resp = self._client.post(
-            f"{self._base_url}/api/chat",
-            json={
-                "model": self._model,
-                "messages": [{"role": "user", "content": prompt}],
-                "stream": False,
-            },
-        )
-        resp.raise_for_status()
-        return resp.json()["message"]["content"]
+        try:
+            resp = self._client.post(
+                f"{self._base_url}/api/chat",
+                json={
+                    "model": self._model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "stream": False,
+                },
+            )
+            resp.raise_for_status()
+            return resp.json()["message"]["content"]
+        except (httpx.HTTPError, KeyError, ValueError) as e:
+            raise ProviderError(f"Ollama API request failed: {e}") from e

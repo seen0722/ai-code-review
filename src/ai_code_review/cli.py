@@ -11,9 +11,9 @@ from rich.markup import escape as rich_escape
 
 from .commit_check import check_commit_message
 from .config import DEFAULT_INCLUDE_EXTENSIONS, DEFAULT_MAX_DIFF_LINES, Config
-from .exceptions import ProviderNotConfiguredError
+from .exceptions import ProviderError, ProviderNotConfiguredError
 from .formatters import format_json, format_markdown, format_terminal
-from .git import GitError, get_staged_diff
+from .git import GitError, get_push_diff, get_staged_diff
 from .llm.base import LLMProvider
 from .llm.enterprise import EnterpriseProvider
 from .llm.ollama import OllamaProvider
@@ -75,13 +75,15 @@ def _build_provider(config: Config, cli_provider: str | None, cli_model: str | N
 @click.option("--model", "cli_model", default=None, help="Model name")
 @click.option("--format", "output_format", default="terminal", type=click.Choice(["terminal", "markdown", "json"]))
 @click.option("--verbose", "-v", is_flag=True, help="Enable debug logging.")
+@click.option("--graceful", is_flag=True, help="Don't block on LLM failures (exit 0 instead of 1).")
 @click.pass_context
-def main(ctx: click.Context, cli_provider: str | None, cli_model: str | None, output_format: str, verbose: bool) -> None:
+def main(ctx: click.Context, cli_provider: str | None, cli_model: str | None, output_format: str, verbose: bool, graceful: bool) -> None:
     """AI-powered code review for Android BSP teams."""
     ctx.ensure_object(dict)
     ctx.obj["cli_provider"] = cli_provider
     ctx.obj["cli_model"] = cli_model
     ctx.obj["output_format"] = output_format
+    ctx.obj["graceful"] = graceful
 
     if verbose:
         import logging
@@ -97,6 +99,7 @@ def _review(ctx: click.Context) -> None:
     cli_provider = ctx.obj["cli_provider"]
     cli_model = ctx.obj["cli_model"]
     output_format = ctx.obj["output_format"]
+    graceful = ctx.obj.get("graceful", False)
 
     ext_raw = config.get("review", "include_extensions")
     if ext_raw is None:
@@ -131,9 +134,22 @@ def _review(ctx: click.Context) -> None:
     except ProviderNotConfiguredError as e:
         console.print(f"[bold red]{rich_escape(str(e))}[/]")
         sys.exit(1)
+    except ProviderError as e:
+        if graceful:
+            console.print(f"[yellow]Warning: LLM provider error: {rich_escape(str(e))}[/]")
+            return
+        console.print(f"[bold red]{rich_escape(str(e))}[/]")
+        sys.exit(1)
 
     reviewer = Reviewer(provider=provider)
-    result = reviewer.review_diff(diff, custom_rules=custom_rules)
+    try:
+        result = reviewer.review_diff(diff, custom_rules=custom_rules)
+    except ProviderError as e:
+        if graceful:
+            console.print(f"[yellow]Warning: LLM provider error: {rich_escape(str(e))}[/]")
+            return
+        console.print(f"[bold red]{rich_escape(str(e))}[/]")
+        sys.exit(1)
 
     formatters = {"terminal": format_terminal, "markdown": format_markdown, "json": format_json}
     output = formatters[output_format](result)
@@ -184,8 +200,17 @@ def check_commit(ctx: click.Context, message_file: str | None, auto_accept: bool
     if not diff:
         return
 
+    graceful = ctx.obj.get("graceful", False) if ctx.obj else False
+
     reviewer = Reviewer(provider=provider)
-    improved = reviewer.improve_commit_message(message, diff)
+    try:
+        improved = reviewer.improve_commit_message(message, diff)
+    except ProviderError as e:
+        if graceful:
+            console.print(f"[yellow]Warning: LLM provider error: {rich_escape(str(e))}[/]")
+        else:
+            console.print(f"[bold red]{rich_escape(str(e))}[/]")
+        return
 
     if improved and improved.strip() != message:
         console.print(f"\n[dim]Original:[/]  {rich_escape(message)}")
@@ -208,6 +233,144 @@ def check_commit(ctx: click.Context, message_file: str | None, auto_accept: bool
                 msg_path.write_text(edited)
                 console.print("[green]Commit message updated.[/]")
         # "s" → do nothing, keep original
+
+
+@main.command("generate-commit-msg")
+@click.argument("message_file")
+@click.argument("source", required=False, default="")
+@click.argument("sha", required=False, default="")
+@click.pass_context
+def generate_commit_msg_cmd(ctx: click.Context, message_file: str, source: str, sha: str) -> None:
+    """Generate commit message from staged diff (used by prepare-commit-msg hook)."""
+    # Skip for merge, squash, amend, and user-provided messages
+    if source in ("merge", "squash", "commit", "message"):
+        return
+
+    graceful = ctx.obj.get("graceful", False) if ctx.obj else False
+
+    config = Config()
+    project_id = config.get("commit", "project_id")
+
+    ext_raw = config.get("review", "include_extensions")
+    if ext_raw is None:
+        ext_raw = DEFAULT_INCLUDE_EXTENSIONS
+    extensions = [e.strip() for e in ext_raw.split(",") if e.strip()] if ext_raw else None
+
+    try:
+        diff = get_staged_diff(extensions=extensions)
+    except GitError:
+        return
+    if not diff:
+        return
+
+    try:
+        cli_provider = ctx.obj.get("cli_provider") if ctx.obj else None
+        cli_model = ctx.obj.get("cli_model") if ctx.obj else None
+        provider = _build_provider(config, cli_provider, cli_model)
+    except (ProviderNotConfiguredError, ProviderError) as e:
+        if graceful:
+            console.print(f"[yellow]Warning: Cannot generate commit message — {rich_escape(str(e))}[/]")
+        return
+
+    reviewer = Reviewer(provider=provider)
+    try:
+        description = reviewer.generate_commit_message(diff)
+    except ProviderError as e:
+        if graceful:
+            console.print(f"[yellow]Warning: Commit message generation failed — {rich_escape(str(e))}[/]")
+        return
+
+    if not description:
+        return
+
+    if project_id:
+        message = f"[{project_id}] {description}"
+    else:
+        message = description
+
+    msg_path = Path(message_file)
+    msg_path.write_text(message + "\n")
+    console.print(f"[green]Generated: {rich_escape(message)}[/]")
+
+
+@main.command("pre-push")
+@click.pass_context
+def pre_push_cmd(ctx: click.Context) -> None:
+    """Review commits before push (used by pre-push hook)."""
+    graceful = ctx.obj.get("graceful", False) if ctx.obj else False
+
+    # Read ref data from stdin
+    stdin_data = click.get_text_stream("stdin").read().strip()
+    if not stdin_data:
+        return
+
+    config = Config()
+    cli_provider = ctx.obj.get("cli_provider") if ctx.obj else None
+    cli_model = ctx.obj.get("cli_model") if ctx.obj else None
+
+    ext_raw = config.get("review", "include_extensions")
+    if ext_raw is None:
+        ext_raw = DEFAULT_INCLUDE_EXTENSIONS
+    extensions = [e.strip() for e in ext_raw.split(",") if e.strip()] if ext_raw else None
+
+    # Collect diffs from all refs being pushed
+    all_diff_parts = []
+    for line in stdin_data.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        local_ref, local_sha, remote_ref, remote_sha = parts[:4]
+        try:
+            diff = get_push_diff(local_sha, remote_sha, extensions=extensions)
+            if diff:
+                all_diff_parts.append(diff)
+        except GitError:
+            continue
+
+    all_diff = "\n".join(all_diff_parts)
+    if not all_diff:
+        console.print("[dim]No changes to review in push.[/]")
+        return
+
+    # Truncate large diffs
+    max_lines_raw = config.get("review", "max_diff_lines")
+    max_lines = int(max_lines_raw) if max_lines_raw else DEFAULT_MAX_DIFF_LINES
+    lines = all_diff.split("\n")
+    if len(lines) > max_lines:
+        console.print(f"[yellow]Warning: diff truncated to {max_lines} lines (original: {len(lines)} lines)[/]")
+        all_diff = "\n".join(lines[:max_lines]) + f"\n... (truncated: showing first {max_lines} of {len(lines)} lines)"
+
+    custom_rules = config.get("review", "custom_rules")
+
+    try:
+        provider = _build_provider(config, cli_provider, cli_model)
+    except (ProviderNotConfiguredError, ProviderError) as e:
+        if graceful:
+            console.print(f"[yellow]Warning: AI review unavailable — {rich_escape(str(e))}[/]")
+            return
+        console.print(f"[bold red]{rich_escape(str(e))}[/]")
+        sys.exit(1)
+
+    reviewer = Reviewer(provider=provider)
+    try:
+        result = reviewer.review_diff(all_diff, custom_rules=custom_rules)
+    except ProviderError as e:
+        if graceful:
+            console.print(f"[yellow]Warning: AI review failed — {rich_escape(str(e))}[/]")
+            return
+        console.print(f"[bold red]{rich_escape(str(e))}[/]")
+        sys.exit(1)
+
+    output_format = ctx.obj.get("output_format", "terminal") if ctx.obj else "terminal"
+    formatters = {"terminal": format_terminal, "markdown": format_markdown, "json": format_json}
+    output = formatters[output_format](result)
+    click.echo(output)
+
+    if result.is_blocked:
+        sys.exit(1)
 
 
 @main.command("health-check")
@@ -318,7 +481,7 @@ def _resolve_ai_review_path() -> str:
     return "ai-review"
 
 
-_HOOK_TYPES = ["pre-commit", "commit-msg"]
+_HOOK_TYPES = ["pre-commit", "prepare-commit-msg", "commit-msg", "pre-push"]
 
 
 def _generate_hook_scripts() -> dict[str, str]:
@@ -334,12 +497,22 @@ fi"""
         "pre-commit": f"""#!/usr/bin/env bash
 # Installed by ai-code-review
 {opt_in_check}
-{ai_review}
+{ai_review} --graceful
+""",
+        "prepare-commit-msg": f"""#!/usr/bin/env bash
+# Installed by ai-code-review
+{opt_in_check}
+{ai_review} --graceful generate-commit-msg "$1" "$2" "$3"
 """,
         "commit-msg": f"""#!/usr/bin/env bash
 # Installed by ai-code-review
 {opt_in_check}
-{ai_review} check-commit --auto-accept "$1"
+{ai_review} --graceful check-commit --auto-accept "$1"
+""",
+        "pre-push": f"""#!/usr/bin/env bash
+# Installed by ai-code-review
+{opt_in_check}
+{ai_review} --graceful pre-push
 """,
     }
 
@@ -357,12 +530,22 @@ fi"""
         "pre-commit": f"""#!/usr/bin/env bash
 # Installed by ai-code-review
 {opt_in_check}
-{ai_review}
+{ai_review} --graceful
+""",
+        "prepare-commit-msg": f"""#!/usr/bin/env bash
+# Installed by ai-code-review
+{opt_in_check}
+{ai_review} --graceful generate-commit-msg "$1" "$2" "$3"
 """,
         "commit-msg": f"""#!/usr/bin/env bash
 # Installed by ai-code-review
 {opt_in_check}
-{ai_review} check-commit --auto-accept "$1"
+{ai_review} --graceful check-commit --auto-accept "$1"
+""",
+        "pre-push": f"""#!/usr/bin/env bash
+# Installed by ai-code-review
+{opt_in_check}
+{ai_review} --graceful pre-push
 """,
     }
 

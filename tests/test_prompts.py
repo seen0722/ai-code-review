@@ -1,4 +1,4 @@
-from ai_code_review.prompts import get_review_prompt, get_commit_improve_prompt
+from ai_code_review.prompts import get_review_prompt, get_commit_improve_prompt, get_generate_commit_prompt
 
 
 class TestReviewPrompt:
@@ -49,3 +49,17 @@ class TestCommitImprovePrompt:
     def test_contains_diff(self):
         prompt = get_commit_improve_prompt("[BSP-1] fix bug", "some diff here")
         assert "some diff here" in prompt
+
+
+class TestGenerateCommitPrompt:
+    def test_prompt_contains_diff(self):
+        prompt = get_generate_commit_prompt("+ int x = 0;")
+        assert "+ int x = 0;" in prompt
+
+    def test_prompt_instructs_imperative_mood(self):
+        prompt = get_generate_commit_prompt("some diff")
+        assert "imperative" in prompt.lower()
+
+    def test_prompt_instructs_concise(self):
+        prompt = get_generate_commit_prompt("some diff")
+        assert "72" in prompt

@@ -56,6 +56,16 @@ class TestImproveCommitMessage:
         assert result == "[BSP-1] improved message"
 
 
+class TestGenerateCommitMessage:
+    def test_delegates_to_provider(self):
+        mock_provider = MagicMock()
+        mock_provider.generate_commit_msg.return_value = "fix buffer overflow"
+        reviewer = Reviewer(provider=mock_provider)
+        result = reviewer.generate_commit_message("some diff")
+        assert result == "fix buffer overflow"
+        mock_provider.generate_commit_msg.assert_called_once_with("some diff")
+
+
 class TestHealthCheck:
     def test_delegates_to_provider(self, reviewer, mock_provider):
         mock_provider.health_check.return_value = (True, "Connected")

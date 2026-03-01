@@ -238,6 +238,91 @@ class TestHookEnableDisable:
         assert result.exit_code != 0
 
 
+class TestHookScriptsUseGraceful:
+    def test_global_hook_scripts_use_graceful(self):
+        from ai_code_review.cli import _generate_hook_scripts
+        scripts = _generate_hook_scripts()
+        for hook_type in ["pre-commit", "commit-msg"]:
+            assert "--graceful" in scripts[hook_type]
+
+    def test_template_hook_scripts_use_graceful(self):
+        from ai_code_review.cli import _generate_template_hook_scripts
+        scripts = _generate_template_hook_scripts()
+        for hook_type in ["pre-commit", "commit-msg"]:
+            assert "--graceful" in scripts[hook_type]
+
+
+class TestPrepareCommitMsgHookScript:
+    def test_global_scripts_include_prepare_commit_msg(self):
+        from ai_code_review.cli import _generate_hook_scripts
+        scripts = _generate_hook_scripts()
+        assert "prepare-commit-msg" in scripts
+        script = scripts["prepare-commit-msg"]
+        assert "generate-commit-msg" in script
+        assert '"$1"' in script
+        assert '"$2"' in script
+        assert '"$3"' in script
+        assert "--graceful" in script
+
+    def test_template_scripts_include_prepare_commit_msg(self):
+        from ai_code_review.cli import _generate_template_hook_scripts
+        scripts = _generate_template_hook_scripts()
+        assert "prepare-commit-msg" in scripts
+        script = scripts["prepare-commit-msg"]
+        assert "generate-commit-msg" in script
+        assert "git config --local ai-review.enabled" in script
+
+    def test_hook_types_includes_prepare_commit_msg(self):
+        from ai_code_review.cli import _HOOK_TYPES
+        assert "prepare-commit-msg" in _HOOK_TYPES
+
+    def test_install_prepare_commit_msg_repo_hook(self, runner, git_repo):
+        result = runner.invoke(main, ["hook", "install", "prepare-commit-msg"])
+        assert result.exit_code == 0
+        hook_path = git_repo / ".git" / "hooks" / "prepare-commit-msg"
+        assert hook_path.exists()
+        assert "generate-commit-msg" in hook_path.read_text()
+
+
+class TestPrePushHookScript:
+    def test_hook_types_includes_pre_push(self):
+        from ai_code_review.cli import _HOOK_TYPES
+        assert "pre-push" in _HOOK_TYPES
+
+    def test_global_scripts_include_pre_push(self):
+        from ai_code_review.cli import _generate_hook_scripts
+        scripts = _generate_hook_scripts()
+        assert "pre-push" in scripts
+        assert "pre-push" in scripts["pre-push"]
+        assert "--graceful" in scripts["pre-push"]
+
+    def test_template_scripts_include_pre_push(self):
+        from ai_code_review.cli import _generate_template_hook_scripts
+        scripts = _generate_template_hook_scripts()
+        assert "pre-push" in scripts
+        assert "git config --local ai-review.enabled" in scripts["pre-push"]
+        assert "--graceful" in scripts["pre-push"]
+
+    def test_install_pre_push_repo_hook(self, runner, git_repo):
+        result = runner.invoke(main, ["hook", "install", "pre-push"])
+        assert result.exit_code == 0
+        hook_path = git_repo / ".git" / "hooks" / "pre-push"
+        assert hook_path.exists()
+        assert "pre-push" in hook_path.read_text()
+
+    def test_template_install_includes_all_hooks(self, runner, tmp_path):
+        fake_template_dir = tmp_path / "template" / "hooks"
+        with patch("ai_code_review.cli._TEMPLATE_HOOKS_DIR", fake_template_dir), \
+             patch("subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+            result = runner.invoke(main, ["hook", "install", "--template"])
+        assert result.exit_code == 0
+        assert (fake_template_dir / "pre-commit").exists()
+        assert (fake_template_dir / "prepare-commit-msg").exists()
+        assert (fake_template_dir / "commit-msg").exists()
+        assert (fake_template_dir / "pre-push").exists()
+
+
 class TestHookConflictCheck:
     def test_template_warns_if_global_hooks_active(self, runner, tmp_path):
         fake_template_dir = tmp_path / "template" / "hooks"
