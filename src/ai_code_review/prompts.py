@@ -20,6 +20,10 @@ Respond with a JSON array only. Each element:
 {"severity": "critical|error|warning|info", "file": "path", "line": number, "message": "description"}
 If no issues found, respond with []. No other text."""
 
+REVIEW_RESPONSE_SCHEMA = """Respond with a JSON array only. Each element:
+{"severity": "critical|error|warning|info", "file": "path", "line": number, "message": "description"}
+If no issues found, respond with []. No other text."""
+
 _COMMIT_IMPROVE_PROMPT = """\
 You are a technical writing assistant. Given the original commit message and the git diff:
 1. Fix English grammar errors

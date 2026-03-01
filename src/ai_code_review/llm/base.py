@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
+
+logger = logging.getLogger(__name__)
 
 
 class Severity(Enum):
@@ -49,3 +53,27 @@ class LLMProvider(ABC):
 
     @abstractmethod
     def health_check(self) -> bool: ...
+
+    def _parse_review(self, content: str) -> ReviewResult:
+        try:
+            text = content.strip()
+            if text.startswith("```"):
+                text = text.split("\n", 1)[1]
+                text = text.rsplit("```", 1)[0]
+            items = json.loads(text)
+        except (json.JSONDecodeError, IndexError):
+            logger.warning("Failed to parse LLM review response: %s", content[:200])
+            return ReviewResult()
+
+        issues = []
+        for item in items:
+            try:
+                issues.append(ReviewIssue(
+                    severity=Severity(item["severity"]),
+                    file=item["file"],
+                    line=int(item["line"]),
+                    message=item["message"],
+                ))
+            except (KeyError, ValueError) as e:
+                logger.warning("Skipping malformed issue: %s (%s)", item, e)
+        return ReviewResult(issues=issues)
