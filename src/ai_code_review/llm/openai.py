@@ -11,12 +11,12 @@ class OpenAIProvider(LLMProvider):
         self._model = model
         self._client = OpenAI(api_key=api_key, base_url=base_url)
 
-    def health_check(self) -> bool:
+    def health_check(self) -> tuple[bool, str]:
         try:
             self._client.models.list()
-            return True
-        except Exception:
-            return False
+            return True, "Connected"
+        except Exception as e:
+            return False, str(e)
 
     def review_code(self, diff: str, prompt: str) -> ReviewResult:
         full_prompt = f"{prompt}\n\n{REVIEW_RESPONSE_SCHEMA}\n\nDiff:\n{diff}"

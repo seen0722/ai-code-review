@@ -25,14 +25,18 @@ class TestEnterpriseHealthCheck:
         respx.get("https://llm.internal.company.com/v1/models").mock(
             return_value=httpx.Response(200, json={"data": []})
         )
-        assert provider.health_check() is True
+        ok, msg = provider.health_check()
+        assert ok is True
+        assert "connected" in msg.lower()
 
     @respx.mock
     def test_unhealthy(self, provider):
         respx.get("https://llm.internal.company.com/v1/models").mock(
             side_effect=httpx.ConnectError("refused")
         )
-        assert provider.health_check() is False
+        ok, msg = provider.health_check()
+        assert ok is False
+        assert msg
 
 
 class TestEnterpriseReviewCode:

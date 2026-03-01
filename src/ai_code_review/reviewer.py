@@ -15,5 +15,5 @@ class Reviewer:
     def improve_commit_message(self, message: str, diff: str) -> str:
         return self._provider.improve_commit_msg(message, diff)
 
-    def check_provider_health(self) -> bool:
+    def check_provider_health(self) -> tuple[bool, str]:
         return self._provider.health_check()

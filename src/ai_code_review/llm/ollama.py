@@ -12,12 +12,18 @@ class OllamaProvider(LLMProvider):
         self._model = model
         self._client = httpx.Client(timeout=120.0)
 
-    def health_check(self) -> bool:
+    def health_check(self) -> tuple[bool, str]:
         try:
             resp = self._client.get(f"{self._base_url}/api/tags")
-            return resp.status_code == 200
-        except httpx.HTTPError:
-            return False
+            if resp.status_code == 200:
+                return True, "Connected"
+            return False, f"HTTP {resp.status_code}"
+        except httpx.ConnectError:
+            return False, f"Connection refused: {self._base_url}"
+        except httpx.TimeoutException:
+            return False, f"Timeout connecting to {self._base_url}"
+        except httpx.HTTPError as e:
+            return False, str(e)
 
     def review_code(self, diff: str, prompt: str) -> ReviewResult:
         full_prompt = f"{prompt}\n\n{REVIEW_RESPONSE_SCHEMA}\n\nDiff:\n{diff}"

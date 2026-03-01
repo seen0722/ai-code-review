@@ -13,7 +13,7 @@ def mock_provider():
         ReviewIssue(severity=Severity.WARNING, file="a.c", line=1, message="minor"),
     ])
     provider.improve_commit_msg.return_value = "[BSP-1] improved message"
-    provider.health_check.return_value = True
+    provider.health_check.return_value = (True, "Connected")
     return provider
 
 
@@ -58,5 +58,7 @@ class TestImproveCommitMessage:
 
 class TestHealthCheck:
     def test_delegates_to_provider(self, reviewer, mock_provider):
-        assert reviewer.check_provider_health() is True
+        mock_provider.health_check.return_value = (True, "Connected")
+        ok, msg = reviewer.check_provider_health()
+        assert ok is True
         mock_provider.health_check.assert_called_once()

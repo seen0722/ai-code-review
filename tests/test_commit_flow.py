@@ -18,7 +18,7 @@ class TestCommitMsgImprovement:
     def test_suggests_improved_message(self, mock_diff, mock_build, runner, tmp_path):
         mock_provider = MagicMock()
         mock_provider.improve_commit_msg.return_value = "[BSP-456] fix camera HAL crash during boot sequence"
-        mock_provider.health_check.return_value = True
+        mock_provider.health_check.return_value = (True, "Connected")
         mock_build.return_value = mock_provider
         mock_diff.return_value = "some diff content"
 
@@ -35,7 +35,7 @@ class TestCommitMsgImprovement:
     def test_skip_keeps_original(self, mock_diff, mock_build, runner, tmp_path):
         mock_provider = MagicMock()
         mock_provider.improve_commit_msg.return_value = "[BSP-456] improved"
-        mock_provider.health_check.return_value = True
+        mock_provider.health_check.return_value = (True, "Connected")
         mock_build.return_value = mock_provider
         mock_diff.return_value = "some diff"
 

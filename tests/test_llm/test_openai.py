@@ -57,10 +57,14 @@ class TestOpenAIHealthCheck:
     def test_healthy(self, mock_cls, provider):
         mock_cls.return_value.models.list.return_value = []
         provider._client = mock_cls.return_value
-        assert provider.health_check() is True
+        ok, msg = provider.health_check()
+        assert ok is True
+        assert "connected" in msg.lower()
 
     @patch("ai_code_review.llm.openai.OpenAI")
     def test_unhealthy(self, mock_cls, provider):
         mock_cls.return_value.models.list.side_effect = Exception("connection refused")
         provider._client = mock_cls.return_value
-        assert provider.health_check() is False
+        ok, msg = provider.health_check()
+        assert ok is False
+        assert "connection refused" in msg.lower()

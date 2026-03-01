@@ -21,7 +21,7 @@ class TestReviewCommand:
         mock_diff.return_value = "some diff"
         mock_provider = MagicMock()
         mock_provider.review_code.return_value = ReviewResult(issues=[])
-        mock_provider.health_check.return_value = True
+        mock_provider.health_check.return_value = (True, "Connected")
         mock_build.return_value = mock_provider
 
         result = runner.invoke(main, [])
@@ -35,7 +35,7 @@ class TestReviewCommand:
         mock_provider.review_code.return_value = ReviewResult(issues=[
             ReviewIssue(severity=Severity.CRITICAL, file="a.c", line=1, message="leak"),
         ])
-        mock_provider.health_check.return_value = True
+        mock_provider.health_check.return_value = (True, "Connected")
         mock_build.return_value = mock_provider
 
         result = runner.invoke(main, [])
