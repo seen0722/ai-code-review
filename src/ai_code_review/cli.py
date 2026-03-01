@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.markup import escape as rich_escape
 
 from .commit_check import check_commit_message
-from .config import DEFAULT_INCLUDE_EXTENSIONS, Config
+from .config import DEFAULT_INCLUDE_EXTENSIONS, DEFAULT_MAX_DIFF_LINES, Config
 from .exceptions import ProviderNotConfiguredError
 from .formatters import format_json, format_markdown, format_terminal
 from .git import GitError, get_staged_diff
@@ -109,6 +109,14 @@ def _review(ctx: click.Context) -> None:
         else:
             console.print("[dim]No staged changes to review.[/]")
         return
+
+    # Truncate large diffs
+    max_lines_raw = config.get("review", "max_diff_lines")
+    max_lines = int(max_lines_raw) if max_lines_raw else DEFAULT_MAX_DIFF_LINES
+    lines = diff.split("\n")
+    if len(lines) > max_lines:
+        console.print(f"[yellow]Warning: diff truncated to {max_lines} lines (original: {len(lines)} lines)[/]")
+        diff = "\n".join(lines[:max_lines]) + f"\n... (truncated: showing first {max_lines} of {len(lines)} lines)"
 
     custom_rules = config.get("review", "custom_rules")
 

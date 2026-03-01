@@ -117,6 +117,51 @@ class TestConfigCommand:
         mock_config.set.assert_called_once_with("provider", "default", "ollama")
 
 
+class TestDiffTruncation:
+    @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_staged_diff")
+    @patch("ai_code_review.cli.Config")
+    def test_truncates_large_diff(self, mock_config_cls, mock_diff, mock_build, runner):
+        # Create a diff with 3000 lines
+        large_diff = "\n".join(f"line {i}" for i in range(3000))
+        mock_diff.return_value = large_diff
+        mock_config = MagicMock()
+        mock_config.get.side_effect = lambda s, k: {
+            ("review", "include_extensions"): None,
+            ("review", "custom_rules"): None,
+            ("review", "max_diff_lines"): "2000",
+        }.get((s, k))
+        mock_config.resolve_provider.return_value = "ollama"
+        mock_config_cls.return_value = mock_config
+        mock_provider = MagicMock()
+        mock_provider.review_code.return_value = ReviewResult(issues=[])
+        mock_build.return_value = mock_provider
+
+        result = runner.invoke(main, [])
+        # Verify the diff passed to provider is truncated
+        diff_arg = mock_provider.review_code.call_args[0][0]
+        assert "truncated" in diff_arg.lower()
+        assert "Warning" in result.output or "truncated" in result.output.lower()
+
+    @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_staged_diff")
+    @patch("ai_code_review.cli.Config")
+    def test_small_diff_not_truncated(self, mock_config_cls, mock_diff, mock_build, runner):
+        small_diff = "\n".join(f"line {i}" for i in range(100))
+        mock_diff.return_value = small_diff
+        mock_config = MagicMock()
+        mock_config.get.return_value = None
+        mock_config.resolve_provider.return_value = "ollama"
+        mock_config_cls.return_value = mock_config
+        mock_provider = MagicMock()
+        mock_provider.review_code.return_value = ReviewResult(issues=[])
+        mock_build.return_value = mock_provider
+
+        result = runner.invoke(main, [])
+        diff_arg = mock_provider.review_code.call_args[0][0]
+        assert "truncated" not in diff_arg.lower()
+
+
 class TestBuildProvider:
     def test_raises_when_no_provider(self):
         from ai_code_review.cli import _build_provider
