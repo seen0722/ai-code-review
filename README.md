@@ -11,6 +11,11 @@ AI-powered code review CLI for Android BSP teams. Catches serious defects (memor
 - **Template hooks** — One command to enable across all repos via `init.templateDir`
 - **Custom review rules** — Add project-specific checks via config, no code changes needed
 - **Multiple output formats** — Terminal (colored), Markdown, JSON
+- **Health check** — Validate LLM provider connectivity before first use
+- **HTTP retry** — Automatic retry (3 attempts) for transient network errors
+- **Configurable timeout** — Per-provider timeout settings
+- **Diff size limit** — Prevents LLM context window overflow with large diffs
+- **Verbose mode** — Debug logging for troubleshooting
 
 ## Installation
 
@@ -103,11 +108,19 @@ Every `git commit` in enabled repos will automatically:
 2. Validate commit message format `[PROJECT-NUMBER] description`
 3. Improve English grammar/clarity via AI (auto-accepted)
 
-### 4. Review code manually
+### 4. Verify setup
+
+```bash
+ai-review health-check            # validate LLM provider connectivity
+ai-review config show             # view current configuration
+```
+
+### 5. Review code manually
 
 ```bash
 git add -A
 ai-review                         # terminal output (default)
+ai-review -v                      # review with debug logging
 ai-review --format markdown       # markdown report
 ai-review --format json           # structured JSON
 ```
@@ -162,6 +175,22 @@ Custom rules are appended to the default BSP review prompt. When not set, behavi
 Config file location: `~/.config/ai-code-review/config.toml`
 
 API keys and tokens are read from environment variables (never stored in config files).
+
+```bash
+ai-review config show             # view all settings
+ai-review config show openai      # view single section
+ai-review config set <section> <key> <value>
+ai-review config get <section> <key>
+```
+
+### Additional config options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `review.include_extensions` | `c,cpp,h,hpp,java` | File extensions to review |
+| `review.custom_rules` | (none) | Additional review rules in natural language |
+| `review.max_diff_lines` | `2000` | Max diff lines sent to LLM (truncated if exceeded) |
+| `<provider>.timeout` | `120` | HTTP timeout in seconds per provider |
 
 ## Severity Levels
 

@@ -126,6 +126,8 @@ ai-review config set review custom_rules "Also check for integer overflow, use-a
 
 - [ ] `ai-review --help` 正常顯示
 - [ ] `ai-review config get provider default` 顯示已設定的 provider
+- [ ] `ai-review health-check` 驗證 LLM provider 連線正常
+- [ ] `ai-review config show` 確認設定正確
 - [ ] `ai-review hook status` 顯示 template hooks installed
 - [ ] 需要 AI review 的 repo 已執行 `ai-review hook enable`
 
@@ -206,8 +208,17 @@ ai-review check-commit --auto-accept .git/COMMIT_EDITMSG
 ```bash
 git add kernel/drivers/gpu/drm/panel-samsung.c
 ai-review                    # terminal 輸出
+ai-review -v                 # debug logging（排查問題用）
 ai-review --format markdown  # Markdown（貼 Issue）
 ai-review --format json      # JSON（CI/CD 整合）
+```
+
+### 檢查設定與連線
+
+```bash
+ai-review config show             # 檢視所有設定
+ai-review config show openai      # 檢視單一 section
+ai-review health-check            # 驗證 LLM provider 連線
 ```
 
 ### 跳過 Hooks
@@ -238,14 +249,17 @@ default = "ollama"
 [ollama]
 base_url = "http://localhost:11434"
 model = "llama3.1"
+timeout = 120              # HTTP timeout（秒），預設 120
 
 [review]
 include_extensions = "c,cpp,h,hpp,java"
+max_diff_lines = 2000      # diff 行數上限，超過會截斷，預設 2000
 custom_rules = "Also check for integer overflow and use-after-free"
 
 [openai]
 api_key_env = "OPENAI_API_KEY"
 model = "gpt-4o"
+timeout = 60               # 選用，預設 120
 
 [enterprise]
 base_url = "https://llm.internal.company.com"
@@ -253,6 +267,7 @@ api_path = "/v1/chat/completions"
 model = "internal-codellama-70b"
 auth_type = "bearer"
 auth_token_env = "ENTERPRISE_LLM_KEY"
+timeout = 120              # 選用，預設 120
 ```
 
 ### 審查等級
@@ -287,6 +302,12 @@ AI 只聚焦嚴重問題，**不報告**程式碼風格或命名建議：
 
 **Q: 多人共用 Ollama？**
 在伺服器啟動 Ollama，其他人設定：`ai-review config set ollama base_url http://192.168.1.100:11434`
+
+**Q: 網路不穩定，LLM 呼叫常失敗？**
+ai-review 內建 HTTP 重試機制（自動重試 3 次）。如果仍然失敗，可調整 timeout：`ai-review config set ollama timeout 180`。使用 `ai-review -v` 查看詳細 debug log。
+
+**Q: diff 太大，LLM 回應很慢或超時？**
+預設限制 diff 最多 2000 行。如需調整：`ai-review config set review max_diff_lines 5000`。超過上限時會自動截斷並警告。
 
 **Q: 如何完全移除？**
 
