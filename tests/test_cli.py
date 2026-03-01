@@ -4,6 +4,7 @@ import pytest
 from click.testing import CliRunner
 
 from ai_code_review.cli import main
+from ai_code_review.exceptions import ProviderNotConfiguredError
 from ai_code_review.git import GitError
 from ai_code_review.llm.base import ReviewResult, ReviewIssue, Severity
 
@@ -114,3 +115,19 @@ class TestConfigCommand:
         result = runner.invoke(main, ["config", "set", "provider", "default", "ollama"])
         assert result.exit_code == 0
         mock_config.set.assert_called_once_with("provider", "default", "ollama")
+
+
+class TestBuildProvider:
+    def test_raises_when_no_provider(self):
+        from ai_code_review.cli import _build_provider
+        mock_config = MagicMock()
+        mock_config.resolve_provider.return_value = None
+        with pytest.raises(ProviderNotConfiguredError):
+            _build_provider(mock_config, None, None)
+
+    def test_raises_for_unknown_provider(self):
+        from ai_code_review.cli import _build_provider
+        mock_config = MagicMock()
+        mock_config.resolve_provider.return_value = "nonexistent"
+        with pytest.raises(ProviderNotConfiguredError):
+            _build_provider(mock_config, None, None)

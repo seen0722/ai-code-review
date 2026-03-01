@@ -10,6 +10,7 @@ from rich.markup import escape as rich_escape
 
 from .commit_check import check_commit_message
 from .config import DEFAULT_INCLUDE_EXTENSIONS, Config
+from .exceptions import ProviderNotConfiguredError
 from .formatters import format_json, format_markdown, format_terminal
 from .git import GitError, get_staged_diff
 from .llm.base import LLMProvider
@@ -24,8 +25,10 @@ console = Console()
 def _build_provider(config: Config, cli_provider: str | None, cli_model: str | None) -> LLMProvider:
     provider_name = config.resolve_provider(cli_provider)
     if not provider_name:
-        console.print("[bold red]No provider configured. Run: ai-review config set provider default <name>[/]")
-        sys.exit(1)
+        raise ProviderNotConfiguredError(
+            "No provider configured. Available providers: ollama, openai, enterprise.\n"
+            "Run: ai-review config set provider default <name>"
+        )
 
     if provider_name == "ollama":
         base_url = config.get("ollama", "base_url") or "http://localhost:11434"
@@ -35,8 +38,11 @@ def _build_provider(config: Config, cli_provider: str | None, cli_model: str | N
     elif provider_name == "openai":
         token = config.resolve_token("openai")
         if not token:
-            console.print("[bold red]OpenAI API key not found. Set the env var specified in config.[/]")
-            sys.exit(1)
+            env_var = config.get("openai", "api_key_env") or "OPENAI_API_KEY"
+            raise ProviderNotConfiguredError(
+                f"OpenAI API key not found. Set env var {env_var} "
+                f"(or configure: ai-review config set openai api_key_env <VAR_NAME>)"
+            )
         model = cli_model or config.get("openai", "model") or "gpt-4o"
         base_url = config.get("openai", "base_url")
         return OpenAIProvider(api_key=token, model=model, base_url=base_url)
@@ -45,8 +51,10 @@ def _build_provider(config: Config, cli_provider: str | None, cli_model: str | N
         token = config.resolve_token("enterprise") or ""
         base_url = config.get("enterprise", "base_url")
         if not base_url:
-            console.print("[bold red]Enterprise base_url not configured.[/]")
-            sys.exit(1)
+            raise ProviderNotConfiguredError(
+                "Enterprise base_url not configured.\n"
+                "Run: ai-review config set enterprise base_url <URL>"
+            )
         api_path = config.get("enterprise", "api_path") or "/v1/chat/completions"
         model = cli_model or config.get("enterprise", "model") or "default"
         auth_type = config.get("enterprise", "auth_type") or "bearer"
@@ -55,8 +63,7 @@ def _build_provider(config: Config, cli_provider: str | None, cli_model: str | N
             auth_type=auth_type, auth_token=token,
         )
 
-    console.print(f"[bold red]Unknown provider: {rich_escape(provider_name)}[/]")
-    sys.exit(1)
+    raise ProviderNotConfiguredError(f"Unknown provider: {provider_name}")
 
 
 @click.group(invoke_without_command=True)
@@ -101,7 +108,12 @@ def _review(ctx: click.Context) -> None:
 
     custom_rules = config.get("review", "custom_rules")
 
-    provider = _build_provider(config, cli_provider, cli_model)
+    try:
+        provider = _build_provider(config, cli_provider, cli_model)
+    except ProviderNotConfiguredError as e:
+        console.print(f"[bold red]{rich_escape(str(e))}[/]")
+        sys.exit(1)
+
     reviewer = Reviewer(provider=provider)
     result = reviewer.review_diff(diff, custom_rules=custom_rules)
 
@@ -142,7 +154,7 @@ def check_commit(ctx: click.Context, message_file: str | None, auto_accept: bool
         cli_provider = ctx.obj.get("cli_provider") if ctx.obj else None
         cli_model = ctx.obj.get("cli_model") if ctx.obj else None
         provider = _build_provider(config, cli_provider, cli_model)
-    except SystemExit:
+    except ProviderNotConfiguredError:
         # No provider configured — skip AI improvement silently
         return
 
