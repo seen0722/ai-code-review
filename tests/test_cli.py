@@ -1,3 +1,4 @@
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -274,3 +275,22 @@ class TestBuildProvider:
         mock_config.resolve_provider.return_value = "nonexistent"
         with pytest.raises(ProviderNotConfiguredError):
             _build_provider(mock_config, None, None)
+
+
+class TestVerboseFlag:
+    @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_staged_diff")
+    def test_verbose_enables_debug_logging(self, mock_diff, mock_build, runner):
+        mock_diff.return_value = ""
+        result = runner.invoke(main, ["-v"])
+        # Check that ai_code_review logger is set to DEBUG
+        logger = logging.getLogger("ai_code_review")
+        assert logger.level == logging.DEBUG
+
+    def test_no_verbose_keeps_default_logging(self, runner):
+        # Reset logger level before test
+        logger = logging.getLogger("ai_code_review")
+        logger.setLevel(logging.WARNING)
+        result = runner.invoke(main, [], input="")
+        # Without -v, logger should not be DEBUG
+        assert logger.level != logging.DEBUG

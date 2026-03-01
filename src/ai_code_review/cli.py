@@ -74,13 +74,19 @@ def _build_provider(config: Config, cli_provider: str | None, cli_model: str | N
 @click.option("--provider", "cli_provider", default=None, help="LLM provider (ollama/openai/enterprise)")
 @click.option("--model", "cli_model", default=None, help="Model name")
 @click.option("--format", "output_format", default="terminal", type=click.Choice(["terminal", "markdown", "json"]))
+@click.option("--verbose", "-v", is_flag=True, help="Enable debug logging.")
 @click.pass_context
-def main(ctx: click.Context, cli_provider: str | None, cli_model: str | None, output_format: str) -> None:
+def main(ctx: click.Context, cli_provider: str | None, cli_model: str | None, output_format: str, verbose: bool) -> None:
     """AI-powered code review for Android BSP teams."""
     ctx.ensure_object(dict)
     ctx.obj["cli_provider"] = cli_provider
     ctx.obj["cli_model"] = cli_model
     ctx.obj["output_format"] = output_format
+
+    if verbose:
+        import logging
+        logging.basicConfig(level=logging.DEBUG, format="[DEBUG] %(message)s")
+        logging.getLogger("ai_code_review").setLevel(logging.DEBUG)
 
     if ctx.invoked_subcommand is None:
         _review(ctx)
