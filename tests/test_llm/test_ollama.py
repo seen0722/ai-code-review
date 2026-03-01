@@ -206,6 +206,28 @@ class TestOllamaChatErrorWrapping:
         assert exc_info.value.__cause__ is not None
 
 
+class TestOllamaGenerateCommitMsg:
+    @respx.mock
+    def test_generates_commit_message(self, provider):
+        respx.post("http://localhost:11434/api/chat").mock(
+            return_value=httpx.Response(200, json={
+                "message": {"content": "fix null pointer in camera init"}
+            })
+        )
+        result = provider.generate_commit_msg("+ if (ptr == NULL) return;")
+        assert result == "fix null pointer in camera init"
+
+    @respx.mock
+    def test_strips_whitespace(self, provider):
+        respx.post("http://localhost:11434/api/chat").mock(
+            return_value=httpx.Response(200, json={
+                "message": {"content": "  fix null pointer in camera init  \n"}
+            })
+        )
+        result = provider.generate_commit_msg("+ if (ptr == NULL) return;")
+        assert result == "fix null pointer in camera init"
+
+
 class TestOllamaTimeout:
     def test_default_timeout(self):
         p = OllamaProvider(base_url="http://localhost:11434", model="codellama")

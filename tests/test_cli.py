@@ -348,6 +348,63 @@ class TestGracefulFlag:
         assert result.exit_code == 1
 
 
+class TestPrePushCommand:
+    @patch("ai_code_review.cli.Config")
+    @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_push_diff")
+    def test_reviews_push_diff(self, mock_push_diff, mock_build, mock_config_cls, runner):
+        mock_push_diff.return_value = "some diff"
+        mock_config = MagicMock()
+        mock_config.get.return_value = None
+        mock_config.resolve_provider.return_value = "ollama"
+        mock_config_cls.return_value = mock_config
+        mock_provider = MagicMock()
+        mock_provider.review_code.return_value = ReviewResult(issues=[])
+        mock_build.return_value = mock_provider
+        stdin_data = "refs/heads/main abc123 refs/heads/main def456\n"
+        result = runner.invoke(main, ["pre-push"], input=stdin_data)
+        assert result.exit_code == 0
+
+    @patch("ai_code_review.cli.Config")
+    @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_push_diff")
+    def test_blocks_on_critical_issue(self, mock_push_diff, mock_build, mock_config_cls, runner):
+        mock_push_diff.return_value = "some diff"
+        mock_config = MagicMock()
+        mock_config.get.return_value = None
+        mock_config.resolve_provider.return_value = "ollama"
+        mock_config_cls.return_value = mock_config
+        mock_provider = MagicMock()
+        mock_provider.review_code.return_value = ReviewResult(issues=[
+            ReviewIssue(severity=Severity.CRITICAL, file="a.c", line=1, message="leak"),
+        ])
+        mock_build.return_value = mock_provider
+        stdin_data = "refs/heads/main abc123 refs/heads/main def456\n"
+        result = runner.invoke(main, ["pre-push"], input=stdin_data)
+        assert result.exit_code == 1
+
+    @patch("ai_code_review.cli.get_push_diff")
+    def test_empty_diff_exits_clean(self, mock_push_diff, runner):
+        mock_push_diff.return_value = ""
+        stdin_data = "refs/heads/main abc123 refs/heads/main def456\n"
+        result = runner.invoke(main, ["pre-push"], input=stdin_data)
+        assert result.exit_code == 0
+
+    @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_push_diff")
+    def test_graceful_on_provider_error(self, mock_push_diff, mock_build, runner):
+        mock_push_diff.return_value = "some diff"
+        mock_build.side_effect = ProviderError("Connection refused")
+        stdin_data = "refs/heads/main abc123 refs/heads/main def456\n"
+        result = runner.invoke(main, ["--graceful", "pre-push"], input=stdin_data)
+        assert result.exit_code == 0
+        assert "warning" in result.output.lower()
+
+    def test_no_stdin_exits_clean(self, runner):
+        result = runner.invoke(main, ["pre-push"], input="")
+        assert result.exit_code == 0
+
+
 class TestGracefulCheckCommit:
     @patch("ai_code_review.cli._build_provider")
     @patch("ai_code_review.cli.get_staged_diff")
@@ -382,3 +439,81 @@ class TestGracefulCheckCommit:
         msg_file.write_text("[BSP-123] fix something")
         result = runner.invoke(main, ["check-commit", str(msg_file)])
         assert result.exit_code == 0
+
+
+class TestGenerateCommitMsgCommand:
+    @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_staged_diff")
+    def test_generates_and_writes_message(self, mock_diff, mock_build, runner, tmp_path):
+        mock_diff.return_value = "+ int x = 0;"
+        mock_provider = MagicMock()
+        mock_provider.generate_commit_msg.return_value = "add integer initialization"
+        mock_build.return_value = mock_provider
+        msg_file = tmp_path / "COMMIT_EDITMSG"
+        msg_file.write_text("")
+        result = runner.invoke(main, ["generate-commit-msg", str(msg_file)])
+        assert result.exit_code == 0
+        assert "add integer initialization" in msg_file.read_text()
+
+    @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_staged_diff")
+    @patch("ai_code_review.cli.Config")
+    def test_prepends_project_id_from_config(self, mock_config_cls, mock_diff, mock_build, runner, tmp_path):
+        mock_diff.return_value = "+ fix bug;"
+        mock_provider = MagicMock()
+        mock_provider.generate_commit_msg.return_value = "fix null pointer in camera"
+        mock_build.return_value = mock_provider
+        mock_config = MagicMock()
+        mock_config.get.side_effect = lambda s, k: {
+            ("commit", "project_id"): "BSP-456",
+            ("review", "include_extensions"): None,
+        }.get((s, k))
+        mock_config.resolve_provider.return_value = "ollama"
+        mock_config_cls.return_value = mock_config
+        msg_file = tmp_path / "COMMIT_EDITMSG"
+        msg_file.write_text("")
+        result = runner.invoke(main, ["generate-commit-msg", str(msg_file)])
+        assert result.exit_code == 0
+        content = msg_file.read_text()
+        assert content.startswith("[BSP-456] ")
+        assert "fix null pointer in camera" in content
+
+    def test_skips_on_merge_source(self, runner, tmp_path):
+        msg_file = tmp_path / "COMMIT_EDITMSG"
+        msg_file.write_text("Merge branch 'feature'")
+        result = runner.invoke(main, ["generate-commit-msg", str(msg_file), "merge"])
+        assert result.exit_code == 0
+        assert msg_file.read_text() == "Merge branch 'feature'"
+
+    def test_skips_on_commit_source(self, runner, tmp_path):
+        msg_file = tmp_path / "COMMIT_EDITMSG"
+        msg_file.write_text("[BSP-123] original")
+        result = runner.invoke(main, ["generate-commit-msg", str(msg_file), "commit"])
+        assert result.exit_code == 0
+        assert msg_file.read_text() == "[BSP-123] original"
+
+    def test_skips_on_message_source(self, runner, tmp_path):
+        msg_file = tmp_path / "COMMIT_EDITMSG"
+        msg_file.write_text("[BSP-123] user message")
+        result = runner.invoke(main, ["generate-commit-msg", str(msg_file), "message"])
+        assert result.exit_code == 0
+        assert msg_file.read_text() == "[BSP-123] user message"
+
+    @patch("ai_code_review.cli.get_staged_diff")
+    def test_skips_on_empty_diff(self, mock_diff, runner, tmp_path):
+        mock_diff.return_value = ""
+        msg_file = tmp_path / "COMMIT_EDITMSG"
+        msg_file.write_text("")
+        result = runner.invoke(main, ["generate-commit-msg", str(msg_file)])
+        assert result.exit_code == 0
+
+    @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_staged_diff")
+    def test_graceful_on_provider_error(self, mock_diff, mock_build, runner, tmp_path):
+        mock_diff.return_value = "some diff"
+        mock_build.side_effect = ProviderError("Connection refused")
+        msg_file = tmp_path / "COMMIT_EDITMSG"
+        msg_file.write_text("")
+        result = runner.invoke(main, ["--graceful", "generate-commit-msg", str(msg_file)])
+        assert result.exit_code == 0
+        assert "warning" in result.output.lower()

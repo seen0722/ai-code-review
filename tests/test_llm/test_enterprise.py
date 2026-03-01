@@ -78,6 +78,28 @@ class TestEnterpriseImproveCommitMsg:
         assert result == "[BSP-1] improved message"
 
 
+class TestEnterpriseGenerateCommitMsg:
+    @respx.mock
+    def test_generates_commit_message(self, provider):
+        respx.post("https://llm.internal.company.com/v1/chat/completions").mock(
+            return_value=httpx.Response(200, json={
+                "choices": [{"message": {"content": "fix null pointer in camera init"}}]
+            })
+        )
+        result = provider.generate_commit_msg("+ if (ptr == NULL) return;")
+        assert result == "fix null pointer in camera init"
+
+    @respx.mock
+    def test_strips_whitespace(self, provider):
+        respx.post("https://llm.internal.company.com/v1/chat/completions").mock(
+            return_value=httpx.Response(200, json={
+                "choices": [{"message": {"content": "  fix null pointer in camera init  \n"}}]
+            })
+        )
+        result = provider.generate_commit_msg("+ if (ptr == NULL) return;")
+        assert result == "fix null pointer in camera init"
+
+
 class TestEnterpriseChatErrorWrapping:
     """_chat() errors should be wrapped in ProviderError."""
 

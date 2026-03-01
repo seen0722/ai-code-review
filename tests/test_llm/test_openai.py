@@ -72,6 +72,28 @@ class TestOpenAIHealthCheck:
         assert "connection refused" in msg.lower()
 
 
+class TestOpenAIGenerateCommitMsg:
+    @patch("ai_code_review.llm.openai.OpenAI")
+    def test_generates_commit_message(self, mock_cls, provider, mock_openai_response):
+        mock_cls.return_value.chat.completions.create.return_value = mock_openai_response(
+            "fix null pointer in camera init"
+        )
+        provider._client = mock_cls.return_value
+
+        result = provider.generate_commit_msg("+ if (ptr == NULL) return;")
+        assert result == "fix null pointer in camera init"
+
+    @patch("ai_code_review.llm.openai.OpenAI")
+    def test_strips_whitespace(self, mock_cls, provider, mock_openai_response):
+        mock_cls.return_value.chat.completions.create.return_value = mock_openai_response(
+            "  fix null pointer in camera init  \n"
+        )
+        provider._client = mock_cls.return_value
+
+        result = provider.generate_commit_msg("+ if (ptr == NULL) return;")
+        assert result == "fix null pointer in camera init"
+
+
 class TestOpenAIChatErrorWrapping:
     """_chat() errors should be wrapped in ProviderError."""
 

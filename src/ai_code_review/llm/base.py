@@ -52,6 +52,9 @@ class LLMProvider(ABC):
     def improve_commit_msg(self, message: str, diff: str) -> str: ...
 
     @abstractmethod
+    def generate_commit_msg(self, diff: str) -> str: ...
+
+    @abstractmethod
     def health_check(self) -> tuple[bool, str]: ...
 
     def _parse_review(self, content: str) -> ReviewResult:

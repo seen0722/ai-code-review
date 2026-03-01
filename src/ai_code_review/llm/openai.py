@@ -5,7 +5,7 @@ from openai import OpenAI
 
 from .base import LLMProvider, ReviewResult
 from ..exceptions import ProviderError
-from ..prompts import REVIEW_RESPONSE_SCHEMA, get_commit_improve_prompt
+from ..prompts import REVIEW_RESPONSE_SCHEMA, get_commit_improve_prompt, get_generate_commit_prompt
 
 
 class OpenAIProvider(LLMProvider):
@@ -27,6 +27,10 @@ class OpenAIProvider(LLMProvider):
 
     def improve_commit_msg(self, message: str, diff: str) -> str:
         prompt = get_commit_improve_prompt(message, diff)
+        return self._chat(prompt).strip()
+
+    def generate_commit_msg(self, diff: str) -> str:
+        prompt = get_generate_commit_prompt(diff)
         return self._chat(prompt).strip()
 
     def _chat(self, prompt: str) -> str:
