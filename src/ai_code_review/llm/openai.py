@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import openai
 from openai import OpenAI
 
 from .base import LLMProvider, ReviewResult
+from ..exceptions import ProviderError
 from ..prompts import REVIEW_RESPONSE_SCHEMA, get_commit_improve_prompt
 
 
@@ -28,8 +30,11 @@ class OpenAIProvider(LLMProvider):
         return self._chat(prompt).strip()
 
     def _chat(self, prompt: str) -> str:
-        response = self._client.chat.completions.create(
-            model=self._model,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return response.choices[0].message.content
+        try:
+            response = self._client.chat.completions.create(
+                model=self._model,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return response.choices[0].message.content
+        except openai.APIError as e:
+            raise ProviderError(f"OpenAI API request failed: {e}") from e

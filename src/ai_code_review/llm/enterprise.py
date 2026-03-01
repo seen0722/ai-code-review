@@ -3,6 +3,7 @@ from __future__ import annotations
 import httpx
 
 from .base import LLMProvider, ReviewResult
+from ..exceptions import ProviderError
 from ..prompts import REVIEW_RESPONSE_SCHEMA, get_commit_improve_prompt
 
 _DEFAULT_TIMEOUT = 120.0
@@ -57,13 +58,16 @@ class EnterpriseProvider(LLMProvider):
         return self._chat(prompt).strip()
 
     def _chat(self, prompt: str) -> str:
-        resp = self._client.post(
-            f"{self._base_url}{self._api_path}",
-            json={
-                "model": self._model,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-        )
-        resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        try:
+            resp = self._client.post(
+                f"{self._base_url}{self._api_path}",
+                json={
+                    "model": self._model,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+            )
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
+        except (httpx.HTTPError, KeyError, ValueError) as e:
+            raise ProviderError(f"Enterprise API request failed: {e}") from e
 
