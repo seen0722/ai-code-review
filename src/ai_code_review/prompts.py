@@ -50,3 +50,21 @@ def get_review_prompt(custom_rules: str | None = None) -> str:
 
 def get_commit_improve_prompt(message: str, diff: str) -> str:
     return _COMMIT_IMPROVE_PROMPT.format(message=message, diff=diff)
+
+
+_GENERATE_COMMIT_PROMPT = """\
+You are a technical writing assistant. Given the following git diff, generate a concise commit message description.
+
+Rules:
+- Use present tense imperative form (e.g., "fix crash in camera HAL", "add null check for buffer pointer")
+- Start with a lowercase verb
+- Accurately describe what the code changes do
+- Keep it under 72 characters
+- Respond with only the description, no prefix, no quotes, no explanation
+
+Diff:
+{diff}"""
+
+
+def get_generate_commit_prompt(diff: str) -> str:
+    return _GENERATE_COMMIT_PROMPT.format(diff=diff)
