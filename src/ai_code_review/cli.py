@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -365,7 +366,7 @@ def hook_status() -> None:
                     console.print(f"  [dim]{hook_type}: not installed[/]")
         else:
             console.print("  [dim]not configured[/]")
-    except Exception:
+    except (subprocess.CalledProcessError, OSError):
         console.print("  [dim]not configured[/]")
 
     # Global hooks status
@@ -387,7 +388,7 @@ def hook_status() -> None:
                     console.print(f"  [dim]{hook_type}: not installed[/]")
         else:
             console.print("  [dim]not configured[/]")
-    except Exception:
+    except (subprocess.CalledProcessError, OSError):
         console.print("  [dim]not configured[/]")
 
     # Current repo status
@@ -424,7 +425,7 @@ def hook_enable() -> None:
     try:
         from .git import _run_git
         _run_git("rev-parse", "--git-dir")
-    except Exception:
+    except (subprocess.CalledProcessError, OSError, GitError):
         console.print("[bold red]Not in a git repository.[/]")
         sys.exit(1)
 
@@ -443,7 +444,7 @@ def hook_disable() -> None:
     try:
         from .git import _run_git
         _run_git("rev-parse", "--git-dir")
-    except Exception:
+    except (subprocess.CalledProcessError, OSError, GitError):
         console.print("[bold red]Not in a git repository.[/]")
         sys.exit(1)
 
@@ -575,6 +576,6 @@ def _get_repo_hooks_dir() -> Path:
         hooks_dir = Path(git_dir) / "hooks"
         hooks_dir.mkdir(exist_ok=True)
         return hooks_dir
-    except Exception:
+    except (subprocess.CalledProcessError, OSError, GitError):
         console.print("[bold red]Not in a git repository.[/]")
         sys.exit(1)
