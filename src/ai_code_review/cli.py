@@ -260,6 +260,34 @@ def config_get(section: str, key: str) -> None:
         console.print(value)
 
 
+@config_group.command("show")
+@click.argument("section", required=False)
+def config_show(section: str | None) -> None:
+    """Show current configuration."""
+    config = Config()
+    data = config._data
+
+    if not data:
+        console.print("[dim]No configuration set.[/]")
+        return
+
+    if section:
+        if section not in data:
+            console.print(f"[dim]Section '{rich_escape(section)}' not found.[/]")
+            return
+        _print_config_section(section, data[section])
+    else:
+        for sect_name, sect_data in data.items():
+            _print_config_section(sect_name, sect_data)
+            console.print()
+
+
+def _print_config_section(name: str, data: dict) -> None:
+    console.print(f"[bold]{rich_escape('[' + name + ']')}[/]")
+    for key, value in data.items():
+        console.print(f"  {rich_escape(key)} = {rich_escape(str(value))}")
+
+
 # --- Hook management ---
 
 _GLOBAL_HOOKS_DIR = Path.home() / ".config" / "ai-code-review" / "hooks"

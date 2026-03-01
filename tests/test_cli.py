@@ -208,6 +208,58 @@ class TestHealthCheckCommand:
         assert "no provider" in result.output.lower()
 
 
+class TestConfigShowCommand:
+    @patch("ai_code_review.cli.Config")
+    def test_show_all_config(self, mock_config_cls, runner):
+        mock_config = MagicMock()
+        mock_config._data = {
+            "provider": {"default": "openai"},
+            "openai": {"api_key_env": "OPENAI_API_KEY", "model": "gpt-4o"},
+        }
+        mock_config_cls.return_value = mock_config
+
+        result = runner.invoke(main, ["config", "show"])
+        assert result.exit_code == 0
+        assert "[provider]" in result.output
+        assert "default = openai" in result.output
+        assert "[openai]" in result.output
+        assert "model = gpt-4o" in result.output
+
+    @patch("ai_code_review.cli.Config")
+    def test_show_single_section(self, mock_config_cls, runner):
+        mock_config = MagicMock()
+        mock_config._data = {
+            "provider": {"default": "openai"},
+            "openai": {"api_key_env": "OPENAI_API_KEY", "model": "gpt-4o"},
+        }
+        mock_config_cls.return_value = mock_config
+
+        result = runner.invoke(main, ["config", "show", "openai"])
+        assert result.exit_code == 0
+        assert "[openai]" in result.output
+        assert "[provider]" not in result.output
+
+    @patch("ai_code_review.cli.Config")
+    def test_show_empty_config(self, mock_config_cls, runner):
+        mock_config = MagicMock()
+        mock_config._data = {}
+        mock_config_cls.return_value = mock_config
+
+        result = runner.invoke(main, ["config", "show"])
+        assert result.exit_code == 0
+        assert "no configuration" in result.output.lower()
+
+    @patch("ai_code_review.cli.Config")
+    def test_show_unknown_section(self, mock_config_cls, runner):
+        mock_config = MagicMock()
+        mock_config._data = {"provider": {"default": "ollama"}}
+        mock_config_cls.return_value = mock_config
+
+        result = runner.invoke(main, ["config", "show", "nonexistent"])
+        assert result.exit_code == 0
+        assert "not found" in result.output.lower()
+
+
 class TestBuildProvider:
     def test_raises_when_no_provider(self):
         from ai_code_review.cli import _build_provider
