@@ -140,7 +140,7 @@ ai-review config set review custom_rules "Also check for integer overflow, use-a
 啟用後，`git commit` 自動執行：
 
 ```
-git commit -m "[CAM-456] fix null pointer crash"
+git commit
   |
   +-- 檢查 ai-review.enabled -- 未啟用則跳過
   |
@@ -148,12 +148,30 @@ git commit -m "[CAM-456] fix null pointer crash"
   |   PASS  無嚴重問題 -- 繼續
   |   BLOCK 發現 critical/error -- 擋下 commit
   |
-  +-- [Hook 2] commit-msg: 格式檢查 + AI 英文優化
+  +-- [Hook 2] prepare-commit-msg: 自動產生 Commit Message
+  |   根據 staged diff 用 AI 產生描述，自動前綴 [PROJECT-ID]
+  |   填入編輯器供確認/修改（使用 -m 時跳過）
+  |
+  +-- [Hook 3] commit-msg: 格式檢查 + AI 英文優化
   |   PASS  格式正確 -- AI 改善英文描述（自動接受）
   |   BLOCK 格式錯誤 -- 擋下 commit
   |
   +-- Commit 成功
 ```
+
+`git push` 自動執行：
+
+```
+git push origin main
+  |
+  +-- [Hook] pre-push: AI Review 所有待推送 commits
+  |   PASS  無嚴重問題 -- 繼續 push
+  |   BLOCK 發現 critical/error -- 擋下 push
+  |
+  +-- Push 成功
+```
+
+所有 hooks 使用 `--graceful` 模式：LLM 連線失敗時只印警告，不阻擋操作。
 
 ### Commit Message 規範
 
@@ -202,6 +220,40 @@ ai-review check-commit --auto-accept .git/COMMIT_EDITMSG
 | **[S]kip** | 保留原始 commit message |
 
 設定環境變數 `AI_REVIEW_AUTO_ACCEPT=1` 可全域啟用自動接受。
+
+### 自動產生 Commit Message
+
+prepare-commit-msg hook 會根據 staged diff 用 AI 自動產生 commit message：
+
+- 使用 `git commit`（不帶 `-m`）時觸發
+- 使用 `-m` 提供 message 時自動跳過
+- 若設定 `commit.project_id`，自動前綴 `[PROJECT-ID]`
+
+設定專案 ID：
+
+```bash
+ai-review config set commit project_id "BSP-456"
+```
+
+手動產生 commit message：
+
+```bash
+ai-review generate-commit-msg .git/COMMIT_EDITMSG
+```
+
+### Pre-push 審查
+
+`git push` 時自動對所有待推送的 commits 執行 AI code review：
+
+- 發現 critical/error 等級問題時擋下 push
+- warning/info 等級只提示，不阻擋
+- 使用 `--graceful` 模式，LLM 連線失敗時不阻擋 push
+
+手動執行 pre-push 審查：
+
+```bash
+ai-review pre-push
+```
 
 ### 手動 Code Review
 
@@ -256,6 +308,9 @@ include_extensions = "c,cpp,h,hpp,java"
 max_diff_lines = 2000      # diff 行數上限，超過會截斷，預設 2000
 custom_rules = "Also check for integer overflow and use-after-free"
 
+[commit]
+project_id = "BSP-456"     # 自動產生 commit message 時前綴 [PROJECT-ID]
+
 [openai]
 api_key_env = "OPENAI_API_KEY"
 model = "gpt-4o"
@@ -308,6 +363,9 @@ ai-review 內建 HTTP 重試機制（自動重試 3 次）。如果仍然失敗�
 
 **Q: diff 太大，LLM 回應很慢或超時？**
 預設限制 diff 最多 2000 行。如需調整：`ai-review config set review max_diff_lines 5000`。超過上限時會自動截斷並警告。
+
+**Q: LLM 連線失敗會擋下 commit/push 嗎？**
+不會。所有 hooks 使用 `--graceful` 模式，LLM 連線失敗時只印警告，不阻擋操作。格式驗證（如 commit message 格式）不受影響，仍會正常擋下。
 
 **Q: 如何完全移除？**
 

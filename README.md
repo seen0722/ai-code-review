@@ -7,6 +7,9 @@ AI-powered code review CLI for Android BSP teams. Catches serious defects (memor
 - **AI code review** — Automatically review staged git diff for critical issues
 - **Commit message enforcement** — Validates `[PROJECT-NUMBER] description` format
 - **AI commit message improvement** — Fixes English grammar and clarifies descriptions
+- **Auto-generate commit messages** — LLM generates commit message from staged diff (prepare-commit-msg hook)
+- **Pre-push review** — AI reviews all commits before push as a last line of defense
+- **Graceful degradation** — LLM failures warn but never block development workflow
 - **Multiple LLM backends** — Ollama (local), enterprise internal LLM, OpenAI
 - **Template hooks** — One command to enable across all repos via `init.templateDir`
 - **Custom review rules** — Add project-specific checks via config, no code changes needed
@@ -105,8 +108,11 @@ repo forall -c 'ai-review hook enable'       # batch enable (Android repo)
 Every `git commit` in enabled repos will automatically:
 
 1. Run AI code review on staged changes (blocks on critical/error)
-2. Validate commit message format `[PROJECT-NUMBER] description`
-3. Improve English grammar/clarity via AI (auto-accepted)
+2. Auto-generate commit message from staged diff (if no `-m` provided)
+3. Validate commit message format `[PROJECT-NUMBER] description`
+4. Improve English grammar/clarity via AI (auto-accepted)
+
+Every `git push` will review all commits being pushed as a final check.
 
 ### 4. Verify setup
 
@@ -133,10 +139,14 @@ ai-review hook install --template      # install via init.templateDir
 ai-review hook uninstall --template    # remove template hooks
 
 # Per-repo hooks
-ai-review hook install pre-commit      # install for current repo only
+ai-review hook install pre-commit          # install for current repo only
+ai-review hook install prepare-commit-msg
 ai-review hook install commit-msg
+ai-review hook install pre-push
 ai-review hook uninstall pre-commit
+ai-review hook uninstall prepare-commit-msg
 ai-review hook uninstall commit-msg
+ai-review hook uninstall pre-push
 
 # Opt-in control
 ai-review hook enable                  # enable current repo
@@ -190,6 +200,7 @@ ai-review config get <section> <key>
 | `review.include_extensions` | `c,cpp,h,hpp,java` | File extensions to review |
 | `review.custom_rules` | (none) | Additional review rules in natural language |
 | `review.max_diff_lines` | `2000` | Max diff lines sent to LLM (truncated if exceeded) |
+| `commit.project_id` | (none) | Auto-prefix generated commit messages with `[PROJECT-ID]` |
 | `<provider>.timeout` | `120` | HTTP timeout in seconds per provider |
 
 ## Severity Levels
