@@ -10,10 +10,10 @@ from rich.console import Console
 from rich.markup import escape as rich_escape
 
 from .commit_check import check_commit_message
-from .config import DEFAULT_INCLUDE_EXTENSIONS, DEFAULT_MAX_DIFF_LINES, Config
+from .config import DEFAULT_INCLUDE_EXTENSIONS, DEFAULT_MAX_CONTEXT_LINES, DEFAULT_MAX_DIFF_LINES, Config
 from .exceptions import ProviderError, ProviderNotConfiguredError
 from .formatters import format_json, format_markdown, format_terminal
-from .git import GitError, get_push_diff, get_staged_diff
+from .git import GitError, get_commit_file_contents, get_push_diff, get_staged_diff, get_staged_file_contents
 from .llm.base import LLMProvider
 from .llm.enterprise import EnterpriseProvider
 from .llm.ollama import OllamaProvider
@@ -129,6 +129,14 @@ def _review(ctx: click.Context) -> None:
 
     custom_rules = config.get("review", "custom_rules")
 
+    max_context_raw = config.get("review", "max_context_lines")
+    max_context = int(max_context_raw) if max_context_raw else DEFAULT_MAX_CONTEXT_LINES
+    file_contents: dict[str, str] = {}
+    try:
+        file_contents = get_staged_file_contents(extensions=extensions, max_lines=max_context)
+    except GitError:
+        pass
+
     try:
         provider = _build_provider(config, cli_provider, cli_model)
     except ProviderNotConfiguredError as e:
@@ -143,7 +151,7 @@ def _review(ctx: click.Context) -> None:
 
     reviewer = Reviewer(provider=provider)
     try:
-        result = reviewer.review_diff(diff, custom_rules=custom_rules)
+        result = reviewer.review_diff(diff, custom_rules=custom_rules, file_contents=file_contents)
     except ProviderError as e:
         if graceful:
             console.print(f"[yellow]Warning: LLM provider error: {rich_escape(str(e))}[/]")
@@ -315,6 +323,7 @@ def pre_push_cmd(ctx: click.Context) -> None:
 
     # Collect diffs from all refs being pushed
     all_diff_parts = []
+    last_local_sha: str | None = None
     for line in stdin_data.split("\n"):
         line = line.strip()
         if not line:
@@ -327,6 +336,8 @@ def pre_push_cmd(ctx: click.Context) -> None:
             diff = get_push_diff(local_sha, remote_sha, extensions=extensions)
             if diff:
                 all_diff_parts.append(diff)
+                if local_sha and local_sha != "0" * 40:
+                    last_local_sha = local_sha
         except GitError:
             continue
 
@@ -345,6 +356,15 @@ def pre_push_cmd(ctx: click.Context) -> None:
 
     custom_rules = config.get("review", "custom_rules")
 
+    max_context_raw = config.get("review", "max_context_lines")
+    max_context = int(max_context_raw) if max_context_raw else DEFAULT_MAX_CONTEXT_LINES
+    file_contents: dict[str, str] = {}
+    if last_local_sha:
+        try:
+            file_contents = get_commit_file_contents(last_local_sha, extensions=extensions, max_lines=max_context)
+        except GitError:
+            pass
+
     try:
         provider = _build_provider(config, cli_provider, cli_model)
     except (ProviderNotConfiguredError, ProviderError) as e:
@@ -356,7 +376,7 @@ def pre_push_cmd(ctx: click.Context) -> None:
 
     reviewer = Reviewer(provider=provider)
     try:
-        result = reviewer.review_diff(all_diff, custom_rules=custom_rules)
+        result = reviewer.review_diff(all_diff, custom_rules=custom_rules, file_contents=file_contents)
     except ProviderError as e:
         if graceful:
             console.print(f"[yellow]Warning: AI review failed — {rich_escape(str(e))}[/]")

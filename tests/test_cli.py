@@ -517,3 +517,51 @@ class TestGenerateCommitMsgCommand:
         result = runner.invoke(main, ["--graceful", "generate-commit-msg", str(msg_file)])
         assert result.exit_code == 0
         assert "warning" in result.output.lower()
+
+
+class TestHybridContext:
+    @patch("ai_code_review.cli.Config")
+    @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_staged_file_contents")
+    @patch("ai_code_review.cli.get_staged_diff")
+    def test_review_passes_file_contents_to_reviewer(
+        self, mock_diff, mock_file_contents, mock_build, mock_config_cls, runner
+    ):
+        mock_diff.return_value = "some diff"
+        mock_file_contents.return_value = {"main.c": "int main() {}"}
+        mock_config = MagicMock()
+        mock_config.get.return_value = None
+        mock_config.resolve_provider.return_value = "ollama"
+        mock_config_cls.return_value = mock_config
+        mock_provider = MagicMock()
+        mock_provider.review_code.return_value = ReviewResult(issues=[])
+        mock_build.return_value = mock_provider
+
+        result = runner.invoke(main, [])
+        assert result.exit_code == 0
+        mock_file_contents.assert_called_once()
+        # Verify file_contents was passed to review_code via the context prompt
+        prompt_arg = mock_provider.review_code.call_args[0][1]
+        assert "main.c" in prompt_arg
+
+    @patch("ai_code_review.cli.Config")
+    @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_staged_file_contents")
+    @patch("ai_code_review.cli.get_staged_diff")
+    def test_review_falls_back_on_git_error(
+        self, mock_diff, mock_file_contents, mock_build, mock_config_cls, runner
+    ):
+        mock_diff.return_value = "some diff"
+        mock_file_contents.side_effect = GitError("git error reading files")
+        mock_config = MagicMock()
+        mock_config.get.return_value = None
+        mock_config.resolve_provider.return_value = "ollama"
+        mock_config_cls.return_value = mock_config
+        mock_provider = MagicMock()
+        mock_provider.review_code.return_value = ReviewResult(issues=[])
+        mock_build.return_value = mock_provider
+
+        result = runner.invoke(main, [])
+        assert result.exit_code == 0
+        # Still calls review_code — just without file context
+        mock_provider.review_code.assert_called_once()

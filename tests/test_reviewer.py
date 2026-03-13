@@ -89,3 +89,42 @@ class TestHealthCheck:
         ok, msg = reviewer.check_provider_health()
         assert ok is True
         mock_provider.health_check.assert_called_once()
+
+
+class TestReviewDiffWithContext:
+    def test_passes_file_contents_to_prompt(self):
+        provider = MagicMock()
+        provider.review_code.return_value = ReviewResult()
+        reviewer = Reviewer(provider=provider)
+        file_contents = {"main.c": "int main() {}"}
+        reviewer.review_diff("diff content", file_contents=file_contents)
+        prompt = provider.review_code.call_args[0][1]
+        assert "main.c" in prompt
+        assert "follow these steps" in prompt
+
+    def test_no_file_contents_uses_basic_prompt(self):
+        provider = MagicMock()
+        provider.review_code.return_value = ReviewResult()
+        reviewer = Reviewer(provider=provider)
+        reviewer.review_diff("diff content")
+        prompt = provider.review_code.call_args[0][1]
+        assert "follow these steps" not in prompt
+
+    def test_empty_file_contents_uses_basic_prompt(self):
+        provider = MagicMock()
+        provider.review_code.return_value = ReviewResult()
+        reviewer = Reviewer(provider=provider)
+        reviewer.review_diff("diff content", file_contents={})
+        prompt = provider.review_code.call_args[0][1]
+        assert "follow these steps" not in prompt
+
+    def test_file_contents_with_custom_rules(self):
+        provider = MagicMock()
+        provider.review_code.return_value = ReviewResult()
+        reviewer = Reviewer(provider=provider)
+        file_contents = {"driver.c": "void init() {}"}
+        reviewer.review_diff("diff", custom_rules="check buffer overflow", file_contents=file_contents)
+        prompt = provider.review_code.call_args[0][1]
+        assert "driver.c" in prompt
+        assert "buffer overflow" in prompt
+        assert "follow these steps" in prompt

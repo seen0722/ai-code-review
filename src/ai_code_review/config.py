@@ -20,6 +20,9 @@ DEFAULT_INCLUDE_EXTENSIONS = "c,cpp,h,hpp,java"
 # Default maximum diff lines to send to LLM (prevents context window overflow)
 DEFAULT_MAX_DIFF_LINES = 2000
 
+# Default maximum lines of full file context to send alongside the diff
+DEFAULT_MAX_CONTEXT_LINES = 5000
+
 # Mapping of provider name to the config key that holds the env var name for its token.
 _TOKEN_ENV_KEYS: dict[str, str] = {
     "openai": "api_key_env",
