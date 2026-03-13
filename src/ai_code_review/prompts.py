@@ -93,3 +93,27 @@ Diff:
 
 def get_generate_commit_prompt(diff: str) -> str:
     return _GENERATE_COMMIT_PROMPT.format(diff=diff)
+
+
+_COMMIT_POLISH_PROMPT = """\
+You are a technical writing assistant for Android BSP commit messages.
+
+Given the user's summary and description, plus the git diff:
+1. Fix English grammar and spelling
+2. Make the summary more precise based on the actual code changes
+3. Enrich the description with specific details from the diff (variable names, function names, file paths)
+4. Keep the summary under 72 characters
+5. Return ONLY the polished text in this exact format:
+
+SUMMARY: <polished summary>
+DESCRIPTION: <polished description>
+
+User summary: {summary}
+User description: {description}
+
+Diff:
+{diff}"""
+
+
+def get_commit_polish_prompt(summary: str, description: str, diff: str) -> str:
+    return _COMMIT_POLISH_PROMPT.format(summary=summary, description=description, diff=diff)

@@ -18,5 +18,8 @@ class Reviewer:
     def generate_commit_message(self, diff: str) -> str:
         return self._provider.generate_commit_msg(diff)
 
+    def polish_commit_message(self, summary: str, description: str, diff: str) -> str:
+        return self._provider.polish_commit_msg(summary, description, diff)
+
     def check_provider_health(self) -> tuple[bool, str]:
         return self._provider.health_check()

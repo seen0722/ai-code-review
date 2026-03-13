@@ -228,6 +228,26 @@ class TestOllamaGenerateCommitMsg:
         assert result == "fix null pointer in camera init"
 
 
+class TestOllamaPolishCommitMsg:
+    @respx.mock
+    def test_returns_response(self):
+        respx.post("http://localhost:11434/api/chat").mock(
+            return_value=httpx.Response(200, json={"message": {"content": "SUMMARY: polished\nDESCRIPTION: desc"}})
+        )
+        provider = OllamaProvider(base_url="http://localhost:11434", model="test")
+        result = provider.polish_commit_msg("fix", "desc", "diff")
+        assert "polished" in result
+
+    @respx.mock
+    def test_strips_whitespace(self):
+        respx.post("http://localhost:11434/api/chat").mock(
+            return_value=httpx.Response(200, json={"message": {"content": "  SUMMARY: polished\nDESCRIPTION: desc  \n"}})
+        )
+        provider = OllamaProvider(base_url="http://localhost:11434", model="test")
+        result = provider.polish_commit_msg("fix", "desc", "diff")
+        assert result == "SUMMARY: polished\nDESCRIPTION: desc"
+
+
 class TestOllamaTimeout:
     def test_default_timeout(self):
         p = OllamaProvider(base_url="http://localhost:11434", model="codellama")

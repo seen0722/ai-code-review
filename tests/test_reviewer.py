@@ -66,6 +66,23 @@ class TestGenerateCommitMessage:
         mock_provider.generate_commit_msg.assert_called_once_with("some diff")
 
 
+class TestPolishCommitMessage:
+    def test_delegates_to_provider(self):
+        provider = MagicMock()
+        provider.polish_commit_msg.return_value = "polished"
+        reviewer = Reviewer(provider=provider)
+        result = reviewer.polish_commit_message("fix", "desc", "diff")
+        assert result == "polished"
+        provider.polish_commit_msg.assert_called_once()
+
+    def test_passes_all_arguments(self):
+        provider = MagicMock()
+        provider.polish_commit_msg.return_value = "SUMMARY: polished\nDESCRIPTION: detailed"
+        reviewer = Reviewer(provider=provider)
+        reviewer.polish_commit_message("fix crash", "camera null ptr", "some diff")
+        provider.polish_commit_msg.assert_called_once_with("fix crash", "camera null ptr", "some diff")
+
+
 class TestHealthCheck:
     def test_delegates_to_provider(self, reviewer, mock_provider):
         mock_provider.health_check.return_value = (True, "Connected")
