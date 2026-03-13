@@ -5,6 +5,7 @@ import pytest
 from click.testing import CliRunner
 
 from ai_code_review.cli import main
+from ai_code_review.commit_template import CommitType
 from ai_code_review.exceptions import ProviderError, ProviderNotConfiguredError
 from ai_code_review.git import GitError
 from ai_code_review.llm.base import ReviewResult, ReviewIssue, Severity
@@ -517,6 +518,49 @@ class TestGenerateCommitMsgCommand:
         result = runner.invoke(main, ["--graceful", "generate-commit-msg", str(msg_file)])
         assert result.exit_code == 0
         assert "warning" in result.output.lower()
+
+
+class TestInteractiveCommitMsg:
+    def test_skip_for_merge_source(self, runner):
+        result = runner.invoke(main, ["generate-commit-msg", "/tmp/msg", "merge"])
+        assert result.exit_code == 0
+
+    def test_message_source_not_skipped(self, runner, tmp_path):
+        """source='message' should NOT skip — was removed from skip list."""
+        msg_file = tmp_path / "COMMIT_EDITMSG"
+        msg_file.write_text("")
+        with patch("ai_code_review.cli.get_staged_diff", return_value="diff"), \
+             patch("ai_code_review.cli.sys") as mock_sys, \
+             patch("ai_code_review.cli.run_interactive_qa") as mock_qa, \
+             patch("ai_code_review.cli.build_commit_message", return_value="[BSP][CAM] msg"), \
+             patch("ai_code_review.cli._build_provider"), \
+             patch("click.prompt", return_value="a"):
+            mock_sys.stdin.isatty.return_value = True
+            mock_qa.return_value = {
+                "is_update": False, "category": "BSP", "component": "CAMERA",
+                "summary": "fix", "commit_type": CommitType.FEATURE,
+                "impact_projects": "L/", "description": "D",
+                "test": "T", "modified_files": ["a.c"],
+                "bug_id": None, "symptom": None, "root_cause": None, "solution": None,
+            }
+            result = runner.invoke(main, ["generate-commit-msg", str(msg_file), "message"])
+            mock_qa.assert_called_once()
+
+
+class TestExtractModifiedFiles:
+    def test_extracts_file_paths(self):
+        from ai_code_review.cli import _extract_modified_files
+        diff = "--- a/old.c\n+++ b/main.c\n@@ -1 +1 @@\n+new"
+        assert "main.c" in _extract_modified_files(diff)
+
+    def test_handles_deleted_file(self):
+        from ai_code_review.cli import _extract_modified_files
+        diff = "--- a/removed.c\n+++ /dev/null\n"
+        assert "/dev/null" not in _extract_modified_files(diff)
+
+    def test_empty_diff(self):
+        from ai_code_review.cli import _extract_modified_files
+        assert _extract_modified_files("") == []
 
 
 class TestHybridContext:

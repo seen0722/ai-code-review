@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.markup import escape as rich_escape
 
 from .commit_check import check_commit_message
+from .commit_template import CommitType, build_commit_message, run_interactive_qa
 from .config import DEFAULT_INCLUDE_EXTENSIONS, DEFAULT_MAX_CONTEXT_LINES, DEFAULT_MAX_DIFF_LINES, Config
 from .exceptions import ProviderError, ProviderNotConfiguredError
 from .formatters import format_json, format_markdown, format_terminal
@@ -21,6 +22,17 @@ from .llm.openai import OpenAIProvider
 from .reviewer import Reviewer
 
 console = Console()
+
+
+def _extract_modified_files(diff: str) -> list[str]:
+    """Extract file paths from diff output."""
+    files = []
+    for line in diff.split("\n"):
+        if line.startswith("+++ b/"):
+            files.append(line[6:])
+        elif line.startswith("+++ ") and "/dev/null" not in line:
+            files.append(line[4:])
+    return files
 
 
 def _build_provider(config: Config, cli_provider: str | None, cli_model: str | None) -> LLMProvider:
@@ -249,15 +261,13 @@ def check_commit(ctx: click.Context, message_file: str | None, auto_accept: bool
 @click.argument("sha", required=False, default="")
 @click.pass_context
 def generate_commit_msg_cmd(ctx: click.Context, message_file: str, source: str, sha: str) -> None:
-    """Generate commit message from staged diff (used by prepare-commit-msg hook)."""
-    # Skip for merge, squash, amend, and user-provided messages
-    if source in ("merge", "squash", "commit", "message"):
+    """Generate commit message via interactive Q&A or auto-generate."""
+    # Skip for merge, squash, amend (but NOT "message")
+    if source in ("merge", "squash", "commit"):
         return
 
     graceful = ctx.obj.get("graceful", False) if ctx.obj else False
-
     config = Config()
-    project_id = config.get("commit", "project_id")
 
     ext_raw = config.get("review", "include_extensions")
     if ext_raw is None:
@@ -271,6 +281,70 @@ def generate_commit_msg_cmd(ctx: click.Context, message_file: str, source: str, 
     if not diff:
         return
 
+    modified_files = _extract_modified_files(diff)
+
+    # Auto-accept mode skips Q&A
+    auto_accept = os.environ.get("AI_REVIEW_AUTO_ACCEPT") == "1"
+
+    # Interactive Q&A if TTY available and not auto-accept
+    if sys.stdin.isatty() and not auto_accept:
+        default_category = config.get("commit", "default_category")
+        components_raw = config.get("commit", "components")
+        components = [c.strip() for c in components_raw.split(",")] if components_raw else None
+
+        try:
+            fields = run_interactive_qa(
+                modified_files=modified_files,
+                default_category=default_category,
+                components=components,
+            )
+        except (EOFError, KeyboardInterrupt):
+            return
+
+        # Optional: AI polishing
+        try:
+            cli_provider = ctx.obj.get("cli_provider") if ctx.obj else None
+            cli_model = ctx.obj.get("cli_model") if ctx.obj else None
+            provider = _build_provider(config, cli_provider, cli_model)
+            reviewer = Reviewer(provider=provider)
+            polished = reviewer.polish_commit_message(
+                summary=fields["summary"],
+                description=fields.get("description") or fields.get("symptom") or "",
+                diff=diff,
+            )
+            if "SUMMARY:" in polished:
+                for line in polished.split("\n"):
+                    if line.startswith("SUMMARY:"):
+                        fields["summary"] = line[len("SUMMARY:"):].strip()
+                    elif line.startswith("DESCRIPTION:"):
+                        if fields["commit_type"] == CommitType.FEATURE:
+                            fields["description"] = line[len("DESCRIPTION:"):].strip()
+        except (ProviderNotConfiguredError, ProviderError) as e:
+            if graceful:
+                console.print(f"[yellow]Warning: AI polish skipped — {rich_escape(str(e))}[/]")
+
+        message = build_commit_message(**fields)
+
+        console.print(f"\n[dim]---[/]")
+        console.print(message)
+        console.print(f"[dim]---[/]\n")
+
+        choice = click.prompt(
+            "[A]ccept / [E]dit / [S]kip",
+            type=click.Choice(["a", "e", "s"], case_sensitive=False),
+            default="a",
+        )
+        if choice == "a":
+            Path(message_file).write_text(message + "\n")
+            console.print("[green]Commit message written.[/]")
+        elif choice == "e":
+            edited = click.edit(message)
+            if edited:
+                Path(message_file).write_text(edited)
+                console.print("[green]Commit message written.[/]")
+        return
+
+    # Non-TTY fallback: auto-generate (old behavior)
     try:
         cli_provider = ctx.obj.get("cli_provider") if ctx.obj else None
         cli_model = ctx.obj.get("cli_model") if ctx.obj else None
@@ -291,13 +365,13 @@ def generate_commit_msg_cmd(ctx: click.Context, message_file: str, source: str, 
     if not description:
         return
 
-    if project_id:
-        message = f"[{project_id}] {description}"
+    default_category = config.get("commit", "default_category")
+    if default_category:
+        message = f"[{default_category}][MISC] {description}"
     else:
         message = description
 
-    msg_path = Path(message_file)
-    msg_path.write_text(message + "\n")
+    Path(message_file).write_text(message + "\n")
     console.print(f"[green]Generated: {rich_escape(message)}[/]")
 
 
