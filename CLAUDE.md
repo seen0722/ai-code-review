@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI-powered code review CLI (`ai-review`) for Android BSP engineering teams. Catches serious defects before commit, enforces `[PROJECT-NUMBER] description` commit message format, and provides AI-powered commit message grammar/clarity improvement.
+AI-powered code review CLI (`ai-review`) for Android BSP engineering teams. Catches serious defects before commit with hybrid review context (diff + full file contents), enforces `[CATEGORY][COMPONENT] summary` commit message format, and provides interactive commit message template with AI polishing.
 
 Designed for teams that push directly to main across hundreds of internal GitLab repos. Supports local Ollama, enterprise internal LLM, and external OpenAI as backends.
 
@@ -15,7 +15,7 @@ Designed for teams that push directly to main across hundreds of internal GitLab
 git clone https://github.com/seen0722/ai-code-review.git && cd ai-code-review
 pip install -e ".[dev]"
 
-# Tests (201 tests, pytest + respx + pytest-mock)
+# Tests (258 tests, pytest + respx + pytest-mock)
 pytest                            # run all
 pytest tests/test_cli.py -v       # single file
 pytest -k "test_healthy" -v       # pattern match
@@ -35,7 +35,8 @@ ai-review pre-push                # review commits before push (reads refs from 
 ai-review config set <section> <key> <value>
 ai-review config get <section> <key>
 ai-review config show [section]   # display current configuration
-ai-review config set commit project_id BSP-456  # set project ID for auto-generated messages
+ai-review config set commit default_category BSP  # set default category for commit messages
+ai-review config set commit components "CAMERA,AUDIO,DISPLAY"  # customize component list
 
 # Hook management
 ai-review hook install --template  # template hooks via init.templateDir (recommended)
@@ -57,19 +58,20 @@ ai-review hook status              # show template + per-repo hook status
 
 ```
 src/ai_code_review/
-  cli.py           # click CLI: main group, _review(), check_commit(), generate_commit_msg_cmd(), pre_push_cmd(), health_check_cmd(), config, hook subcommands
-  config.py        # Config class — TOML read/write at ~/.config/ai-code-review/config.toml
-  commit_check.py  # check_commit_message() — regex [A-Z]+-\d+ validation
-  exceptions.py    # AIReviewError, ProviderNotConfiguredError, ProviderError
-  git.py           # get_staged_diff(), get_unstaged_diff(), get_commit_diff(), get_push_diff(), GitError
-  reviewer.py      # Reviewer — orchestrates LLM provider calls with prompts
-  prompts.py       # Android BSP review prompt + commit message improvement/generation prompts + REVIEW_RESPONSE_SCHEMA
-  formatters.py    # format_terminal() / format_markdown() / format_json()
+  cli.py             # click CLI: main group, _review(), check_commit(), generate_commit_msg_cmd(), pre_push_cmd(), health_check_cmd(), config, hook subcommands
+  config.py          # Config class — TOML read/write at ~/.config/ai-code-review/config.toml; check_deprecated_keys()
+  commit_check.py    # check_commit_message() — regex (\[UPDATE\])?\[(BSP|CP|AP)\]\[[A-Z]+\] validation
+  commit_template.py # CommitType enum, build_commit_message(), run_interactive_qa() — structured Q&A flow and message assembly
+  exceptions.py      # AIReviewError, ProviderNotConfiguredError, ProviderError
+  git.py             # get_staged_diff(), get_unstaged_diff(), get_commit_diff(), get_push_diff(), get_staged_file_contents(), get_commit_file_contents(), GitError
+  reviewer.py        # Reviewer — orchestrates LLM provider calls; review_diff(), improve_commit_message(), generate_commit_message(), polish_commit_message()
+  prompts.py         # Android BSP review prompt with CoT guidance + commit improve/generate/polish prompts + REVIEW_RESPONSE_SCHEMA
+  formatters.py      # format_terminal() / format_markdown() / format_json()
   llm/
-    base.py        # LLMProvider ABC (with shared _parse_review()), Severity enum, ReviewIssue, ReviewResult; providers wrap _chat() errors in ProviderError
-    ollama.py      # OllamaProvider — Ollama REST API (/api/chat), httpx, retry + configurable timeout
-    openai.py      # OpenAIProvider — openai SDK, retry + configurable timeout
-    enterprise.py  # EnterpriseProvider — httpx, configurable base_url/api_path/auth, retry + configurable timeout
+    base.py          # LLMProvider ABC (review_code, improve_commit_msg, generate_commit_msg, polish_commit_msg, health_check), shared _parse_review(), Severity, ReviewIssue, ReviewResult
+    ollama.py        # OllamaProvider — Ollama REST API (/api/chat), httpx, retry + configurable timeout
+    openai.py        # OpenAIProvider — openai SDK, retry + configurable timeout
+    enterprise.py    # EnterpriseProvider — httpx, configurable base_url/api_path/auth, retry + configurable timeout
 ```
 
 ## Key Data Flow
@@ -77,29 +79,37 @@ src/ai_code_review/
 ```
 CLI (cli.py)
   → get_staged_diff() (git.py)
+  → get_staged_file_contents() → full file context for hybrid review
   → _build_provider() selects OllamaProvider / OpenAIProvider / EnterpriseProvider
   → config.get("review", "custom_rules") → optional custom rules
-  → Reviewer.review_diff(diff, custom_rules) → get_review_prompt(custom_rules) → provider.review_code(diff, prompt) → ReviewResult
+  → Reviewer.review_diff(diff, custom_rules, file_contents) → get_review_prompt_with_context() → provider.review_code(diff, prompt) → ReviewResult
   → format_terminal/markdown/json(result) → output
   → exit(1) if result.is_blocked (critical/error severity)
 
 check-commit flow:
-  → check_commit_message() regex validation (commit_check.py)
+  → check_commit_message() regex validation — (\[UPDATE\])?\[(BSP|CP|AP)\]\[[A-Z]+\] format (commit_check.py)
   → if valid + file provided + provider configured + diff exists:
     → Reviewer.improve_commit_message() → show suggestion
     → --auto-accept or AI_REVIEW_AUTO_ACCEPT=1: auto-accept
     → interactive [A]ccept / [E]dit / [S]kip → update file if accepted
 
 generate-commit-msg flow (prepare-commit-msg hook):
-  → skip if source is merge/squash/commit/message
+  → skip if source is merge/squash/commit (but NOT "message")
   → get_staged_diff() with extension filter
-  → Reviewer.generate_commit_message(diff) → LLM generates description
-  → prepend [project_id] from config if set → write to message file
+  → if TTY + not auto-accept:
+    → run_interactive_qa() — structured Q&A (commit_template.py)
+    → Reviewer.polish_commit_message() — AI polishes summary/description
+    → build_commit_message() — assemble structured message with [IMPACT PROJECTS], [DESCRIPTION], modified:, [TEST] sections
+    → interactive [A]ccept / [E]dit / [S]kip
+  → else (non-TTY fallback):
+    → Reviewer.generate_commit_message(diff) → LLM generates description
+    → prepend [default_category] from config if set → write to message file
 
 pre-push flow:
   → read stdin (local_ref local_sha remote_ref remote_sha per line)
   → get_push_diff() for each ref → collect all diffs
-  → Reviewer.review_diff() → format output → exit(1) if blocked
+  → get_commit_file_contents(last_local_sha) → full file context for hybrid review
+  → Reviewer.review_diff(diff, custom_rules, file_contents) → format output → exit(1) if blocked
 ```
 
 ## Hook Deployment
@@ -125,13 +135,17 @@ pre-push flow:
 
 ## Key Patterns
 
-- **Provider pattern**: All LLM backends implement `LLMProvider` ABC (`review_code()`, `improve_commit_msg()`, `generate_commit_msg()`, `health_check()`). New provider = one new file in `llm/`.
+- **Provider pattern**: All LLM backends implement `LLMProvider` ABC (`review_code()`, `improve_commit_msg()`, `generate_commit_msg()`, `polish_commit_msg()`, `health_check()`). New provider = one new file in `llm/`.
 - **JSON response parsing**: Shared `_parse_review()` in `LLMProvider` base class handles markdown fences, malformed items, and invalid severity gracefully.
 - **Exception hierarchy**: `ProviderNotConfiguredError` / `ProviderError` replace `sys.exit()` control flow. CLI boundary catches and exits.
 - **Config resolution order**: `--provider` CLI flag > `config.toml [provider].default` > auto-detect. API tokens always read from env vars (never in config files).
 - **Severity blocking**: `Severity.blocks` property — `critical`/`error` return True (block commit), `warning`/`info` return False.
-- **Prompt templates** in `prompts.py`: review prompt focuses on memory leaks, null pointer, race conditions, hardcoded secrets, buffer overflow. Explicitly excludes style/naming/refactoring suggestions.
-- **Non-interactive mode**: `--auto-accept` flag or `AI_REVIEW_AUTO_ACCEPT=1` env var skips interactive prompt in commit-msg hook, auto-accepts AI suggestion.
+- **Prompt templates** in `prompts.py`: review prompt focuses on memory leaks, null pointer, race conditions, hardcoded secrets, buffer overflow. Includes CoT guidance to reduce false positives when file context is available. Explicitly excludes style/naming/refactoring suggestions.
+- **Hybrid review context**: `review.max_context_lines` config (default: 5000). AI review sends full staged file contents alongside the diff via `get_staged_file_contents()`. When context is present, `get_review_prompt_with_context()` inserts CoT guidance and appends file contents to the prompt. For pre-push, `get_commit_file_contents()` reads files at the commit SHA.
+- **Commit message format**: `(\[UPDATE\])?\[(BSP|CP|AP)\]\[[A-Z]+\] summary`. Optional `[UPDATE]` prefix for follow-up commits. Categories: BSP, CP, AP. Component must be uppercase.
+- **Interactive commit message template**: `generate-commit-msg` runs a structured Q&A flow on TTY via `run_interactive_qa()` in `commit_template.py`. Collects: new/update, feature/bugfix, category, component, summary, impact projects, description (or BUG-ID/SYMPTOM/ROOT CAUSE/SOLUTION for bugfix), test. Assembled by `build_commit_message()` with `[IMPACT PROJECTS]`, `[DESCRIPTION]`, `modified:`, `[TEST]` sections. Falls back to LLM auto-generate on non-TTY.
+- **Commit message polishing**: After interactive Q&A, AI polishes summary/description via `Reviewer.polish_commit_message()` → `provider.polish_commit_msg()`. Uses `get_commit_polish_prompt()` to enrich with diff details.
+- **Non-interactive mode**: `--auto-accept` flag or `AI_REVIEW_AUTO_ACCEPT=1` env var skips interactive prompt in commit-msg hook, auto-accepts AI suggestion. Also skips interactive Q&A in generate-commit-msg.
 - **Opt-in mechanism**: template hooks check `git config --local ai-review.enabled`; repos without opt-in are skipped entirely. No repo file pollution.
 - **File extension filter**: `review.include_extensions` config (default: `c,cpp,h,hpp,java`); only matching files are sent to LLM.
 - **Custom review rules**: `review.custom_rules` config (optional); natural language string appended to default BSP review prompt as additional rules. Set via `ai-review config set review custom_rules "..."`. When unset, behavior is identical to before.
@@ -141,11 +155,13 @@ pre-push flow:
 - **Verbose mode**: `--verbose` / `-v` flag enables DEBUG logging for troubleshooting.
 - **Graceful degradation**: `--graceful` flag makes LLM failures non-blocking (print warning, exit 0). All hook scripts use `--graceful` by default. Format validation in commit-msg always blocks regardless of `--graceful`.
 - **Provider error wrapping**: All provider `_chat()` methods wrap raw exceptions (httpx.HTTPError, openai.APIError) in `ProviderError`. CLI catches `ProviderError` uniformly.
-- **Commit message generation**: `generate-commit-msg` command generates commit message description from staged diff via LLM. Prepends `[project_id]` from `commit.project_id` config if set. Skips for merge/squash/amend/user-provided messages.
-- **Pre-push review**: `pre-push` command reads ref data from stdin, collects diffs via `get_push_diff()`, runs AI review. Handles new branches (merge-base with main/master), deletions (skip), and normal pushes.
+- **Commit message generation**: `generate-commit-msg` command runs interactive Q&A on TTY with AI polishing, or auto-generates from staged diff on non-TTY. Uses `commit.default_category` config for category default. Skips for merge/squash/amend (but NOT user-provided messages via `-m`).
+- **Config deprecation**: `commit.project_id` is deprecated in favor of `commit.default_category`. `Config.check_deprecated_keys()` returns a warning message if deprecated keys are detected. CLI displays the warning.
+- **Pre-push review**: `pre-push` command reads ref data from stdin, collects diffs via `get_push_diff()`, reads file contents at commit SHA via `get_commit_file_contents()`, runs hybrid AI review. Handles new branches (merge-base with main/master), deletions (skip), and normal pushes.
 
 ## Testing Conventions
 
+- 258 tests total
 - `respx` mocks HTTP for Ollama and Enterprise providers (httpx-based)
 - `unittest.mock` patches OpenAI SDK client
 - `click.testing.CliRunner` for CLI integration tests
