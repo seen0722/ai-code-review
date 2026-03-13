@@ -63,3 +63,24 @@ class TestConfigResolveToken:
         tmp_config.set("enterprise", "auth_token_env", "CORP_LLM_TOKEN")
         monkeypatch.setenv("CORP_LLM_TOKEN", "bearer-xyz")
         assert tmp_config.resolve_token("enterprise") == "bearer-xyz"
+
+
+class TestDeprecationWarning:
+    def test_warns_on_old_project_id(self, tmp_path):
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        config_file = config_dir / "config.toml"
+        config_file.write_text('[commit]\nproject_id = "BSP-456"\n')
+        config = Config(config_dir=config_dir)
+        warning = config.check_deprecated_keys()
+        assert "project_id" in warning
+        assert "default_category" in warning
+
+    def test_no_warning_without_old_key(self, tmp_path):
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        config_file = config_dir / "config.toml"
+        config_file.write_text('[commit]\ndefault_category = "BSP"\n')
+        config = Config(config_dir=config_dir)
+        warning = config.check_deprecated_keys()
+        assert warning is None

@@ -45,6 +45,85 @@ def get_commit_diff(from_ref: str, to_ref: str, extensions: list[str] | None = N
 _ZERO_SHA = "0" * 40
 
 
+def _get_file_contents(
+    file_list_cmd: list[str],
+    show_prefix: str,
+    extensions: list[str] | None = None,
+    max_lines: int = 5000,
+) -> dict[str, str]:
+    """Read file contents from git for a list of files.
+
+    Args:
+        file_list_cmd: git sub-command args to get the list of file paths.
+        show_prefix: prefix for ``git show`` (e.g. ``":"`` for staged, ``"sha:"`` for a commit).
+        extensions: optional list of extensions to include (without leading dot).
+        max_lines: stop adding more files once the total line count exceeds this
+                   value. At least one file is always included.
+
+    Returns:
+        A dict mapping filepath to file content.
+    """
+    raw = _run_git(*file_list_cmd)
+    filepaths = [p for p in raw.splitlines() if p]
+    if extensions:
+        norm = {ext.lstrip(".") for ext in extensions}
+        filepaths = [p for p in filepaths if p.rsplit(".", 1)[-1] in norm]
+
+    result: dict[str, str] = {}
+    total_lines = 0
+    for filepath in filepaths:
+        content = _run_git("show", f"{show_prefix}{filepath}")
+        result[filepath] = content
+        total_lines += content.count("\n")
+        if total_lines >= max_lines:
+            break
+    return result
+
+
+def get_staged_file_contents(
+    extensions: list[str] | None = None,
+    max_lines: int = 5000,
+) -> dict[str, str]:
+    """Return the full contents of staged files.
+
+    Args:
+        extensions: optional list of file extensions to include (e.g. ``["c", "h"]``).
+        max_lines: stop adding more files once the total line count exceeds this value.
+
+    Returns:
+        A dict mapping filepath to file content.
+    """
+    return _get_file_contents(
+        ["diff", "--cached", "--name-only"],
+        ":",
+        extensions=extensions,
+        max_lines=max_lines,
+    )
+
+
+def get_commit_file_contents(
+    commit_sha: str,
+    extensions: list[str] | None = None,
+    max_lines: int = 5000,
+) -> dict[str, str]:
+    """Return the full contents of files changed in a specific commit.
+
+    Args:
+        commit_sha: the commit SHA to inspect.
+        extensions: optional list of file extensions to include.
+        max_lines: stop adding more files once the total line count exceeds this value.
+
+    Returns:
+        A dict mapping filepath to file content.
+    """
+    return _get_file_contents(
+        ["diff-tree", "--no-commit-id", "-r", "--name-only", commit_sha],
+        f"{commit_sha}:",
+        extensions=extensions,
+        max_lines=max_lines,
+    )
+
+
 def get_push_diff(local_sha: str, remote_sha: str, extensions: list[str] | None = None) -> str:
     """Get diff for commits being pushed.
 

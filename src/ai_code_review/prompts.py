@@ -28,8 +28,8 @@ _COMMIT_IMPROVE_PROMPT = """\
 You are a technical writing assistant. Given the original commit message and the git diff:
 1. Fix English grammar errors
 2. Make the description accurately reflect the code changes
-3. Keep it under 72 characters total
-4. Preserve the [PROJECT-NUMBER] prefix exactly as-is
+3. Keep the first line under 72 characters total
+4. Preserve the prefix tags exactly as-is (e.g., [UPDATE][BSP][CAMERA])
 
 Respond with only the improved commit message. No explanation, no quotes.
 
@@ -39,6 +39,14 @@ Diff:
 {diff}"""
 
 
+_COT_GUIDANCE = """\
+When reviewing, follow these steps:
+1. Read the full file context to understand the complete function, struct definitions, and resource lifecycle
+2. Check if the issue you found is already handled elsewhere in the file (cleanup functions, error paths, caller checks)
+3. Only report an issue if you are confident it is a real problem based on the full context available
+4. If the context is insufficient to confirm a problem, do not report it"""
+
+
 def get_review_prompt(custom_rules: str | None = None) -> str:
     if not custom_rules:
         return _REVIEW_PROMPT
@@ -46,6 +54,23 @@ def get_review_prompt(custom_rules: str | None = None) -> str:
         "\nDo not report:",
         f"\nAdditional rules:\n- {custom_rules}\n\nDo not report:",
     )
+
+
+def get_review_prompt_with_context(
+    file_contents: dict[str, str],
+    custom_rules: str | None = None,
+) -> str:
+    if not file_contents:
+        return get_review_prompt(custom_rules)
+    base = get_review_prompt(custom_rules)
+    respond_marker = "Respond with a JSON array only."
+    cot_insertion = _COT_GUIDANCE + "\n\n"
+    base = base.replace(respond_marker, cot_insertion + respond_marker, 1)
+    file_section_parts = ["--- Full file context ---"]
+    for filename, content in file_contents.items():
+        file_section_parts.append(f"\n### {filename}\n```\n{content}\n```")
+    base = base + "\n\n" + "\n".join(file_section_parts)
+    return base
 
 
 def get_commit_improve_prompt(message: str, diff: str) -> str:
@@ -68,3 +93,27 @@ Diff:
 
 def get_generate_commit_prompt(diff: str) -> str:
     return _GENERATE_COMMIT_PROMPT.format(diff=diff)
+
+
+_COMMIT_POLISH_PROMPT = """\
+You are a technical writing assistant for Android BSP commit messages.
+
+Given the user's summary and description, plus the git diff:
+1. Fix English grammar and spelling
+2. Make the summary more precise based on the actual code changes
+3. Enrich the description with specific details from the diff (variable names, function names, file paths)
+4. Keep the summary under 72 characters
+5. Return ONLY the polished text in this exact format:
+
+SUMMARY: <polished summary>
+DESCRIPTION: <polished description>
+
+User summary: {summary}
+User description: {description}
+
+Diff:
+{diff}"""
+
+
+def get_commit_polish_prompt(summary: str, description: str, diff: str) -> str:
+    return _COMMIT_POLISH_PROMPT.format(summary=summary, description=description, diff=diff)

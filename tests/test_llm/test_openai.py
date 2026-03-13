@@ -94,6 +94,26 @@ class TestOpenAIGenerateCommitMsg:
         assert result == "fix null pointer in camera init"
 
 
+class TestOpenAIPolishCommitMsg:
+    @patch("ai_code_review.llm.openai.OpenAI")
+    def test_returns_response(self, mock_cls, provider, mock_openai_response):
+        mock_cls.return_value.chat.completions.create.return_value = mock_openai_response(
+            "SUMMARY: polished\nDESCRIPTION: desc"
+        )
+        provider._client = mock_cls.return_value
+        result = provider.polish_commit_msg("fix", "desc", "diff")
+        assert "polished" in result
+
+    @patch("ai_code_review.llm.openai.OpenAI")
+    def test_strips_whitespace(self, mock_cls, provider, mock_openai_response):
+        mock_cls.return_value.chat.completions.create.return_value = mock_openai_response(
+            "  SUMMARY: polished\nDESCRIPTION: desc  \n"
+        )
+        provider._client = mock_cls.return_value
+        result = provider.polish_commit_msg("fix", "desc", "diff")
+        assert result == "SUMMARY: polished\nDESCRIPTION: desc"
+
+
 class TestOpenAIChatErrorWrapping:
     """_chat() errors should be wrapped in ProviderError."""
 

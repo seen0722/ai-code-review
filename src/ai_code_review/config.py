@@ -20,6 +20,9 @@ DEFAULT_INCLUDE_EXTENSIONS = "c,cpp,h,hpp,java"
 # Default maximum diff lines to send to LLM (prevents context window overflow)
 DEFAULT_MAX_DIFF_LINES = 2000
 
+# Default maximum lines of full file context to send alongside the diff
+DEFAULT_MAX_CONTEXT_LINES = 5000
+
 # Mapping of provider name to the config key that holds the env var name for its token.
 _TOKEN_ENV_KEYS: dict[str, str] = {
     "openai": "api_key_env",
@@ -54,6 +57,18 @@ class Config:
         if cli_provider:
             return cli_provider
         return self.get("provider", "default")
+
+    def check_deprecated_keys(self) -> str | None:
+        """Check for deprecated config keys and return warning message."""
+        project_id = self.get("commit", "project_id")
+        if project_id:
+            return (
+                f"Warning: 'commit.project_id' is deprecated. "
+                f"Use 'commit.default_category' instead.\n"
+                f"  Run: ai-review config set commit default_category {project_id}\n"
+                f"  Then: ai-review config set commit project_id \"\""
+            )
+        return None
 
     def resolve_token(self, provider: str) -> str | None:
         env_key_name = _TOKEN_ENV_KEYS.get(provider, "api_key_env")

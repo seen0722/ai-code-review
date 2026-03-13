@@ -1,15 +1,23 @@
 from __future__ import annotations
 
 from .llm.base import LLMProvider, ReviewResult
-from .prompts import get_review_prompt
+from .prompts import get_review_prompt, get_review_prompt_with_context
 
 
 class Reviewer:
     def __init__(self, provider: LLMProvider) -> None:
         self._provider = provider
 
-    def review_diff(self, diff: str, custom_rules: str | None = None) -> ReviewResult:
-        prompt = get_review_prompt(custom_rules)
+    def review_diff(
+        self,
+        diff: str,
+        custom_rules: str | None = None,
+        file_contents: dict[str, str] | None = None,
+    ) -> ReviewResult:
+        if file_contents:
+            prompt = get_review_prompt_with_context(file_contents, custom_rules)
+        else:
+            prompt = get_review_prompt(custom_rules)
         return self._provider.review_code(diff, prompt)
 
     def improve_commit_message(self, message: str, diff: str) -> str:
@@ -17,6 +25,9 @@ class Reviewer:
 
     def generate_commit_message(self, diff: str) -> str:
         return self._provider.generate_commit_msg(diff)
+
+    def polish_commit_message(self, summary: str, description: str, diff: str) -> str:
+        return self._provider.polish_commit_msg(summary, description, diff)
 
     def check_provider_health(self) -> tuple[bool, str]:
         return self._provider.health_check()

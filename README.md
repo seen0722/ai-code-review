@@ -5,9 +5,10 @@ AI-powered code review CLI for Android BSP teams. Catches serious defects (memor
 ## Features
 
 - **AI code review** — Automatically review staged git diff for critical issues
-- **Commit message enforcement** — Validates `[PROJECT-NUMBER] description` format
+- **Hybrid review context** — Sends full file contents alongside diffs for fewer false positives
+- **Commit message enforcement** — Validates `[CATEGORY][COMPONENT] summary` format
+- **Interactive commit message template** — Structured Q&A flow generates formatted commit messages with AI polishing
 - **AI commit message improvement** — Fixes English grammar and clarifies descriptions
-- **Auto-generate commit messages** — LLM generates commit message from staged diff (prepare-commit-msg hook)
 - **Pre-push review** — AI reviews all commits before push as a last line of defense
 - **Graceful degradation** — LLM failures warn but never block development workflow
 - **Multiple LLM backends** — Ollama (local), enterprise internal LLM, OpenAI
@@ -107,9 +108,9 @@ repo forall -c 'ai-review hook enable'       # batch enable (Android repo)
 
 Every `git commit` in enabled repos will automatically:
 
-1. Run AI code review on staged changes (blocks on critical/error)
-2. Auto-generate commit message from staged diff (if no `-m` provided)
-3. Validate commit message format `[PROJECT-NUMBER] description`
+1. Run AI code review on staged changes with full file context (blocks on critical/error)
+2. Run interactive Q&A to generate structured commit message (if no `-m` provided and TTY available)
+3. Validate commit message format `[CATEGORY][COMPONENT] summary`
 4. Improve English grammar/clarity via AI (auto-accepted)
 
 Every `git push` will review all commits being pushed as a final check.
@@ -159,16 +160,41 @@ git commit --no-verify -m "[HOTFIX-001] emergency fix"
 
 ## Commit Message Format
 
-All commit messages must follow: `[PROJECT-NUMBER] description`
+All commit messages must follow: `[CATEGORY][COMPONENT] summary`
+
+- **Categories**: BSP, CP, AP
+- **Component**: uppercase identifier (e.g., CAMERA, AUDIO, DISPLAY)
+- **Optional prefix**: `[UPDATE]` for follow-up commits
 
 Examples:
 ```
-[BSP-456] fix camera HAL crash on boot
-[KERN-789] update device tree for new display panel
-[AUD-012] resolve ALSA mixer channel switching issue
+[BSP][CAMERA] fix null pointer crash in preview callback
+[AP][NAL] add installation manager retry logic
+[UPDATE][CP][AUDIO] update mixer path for headset detection
 ```
 
-When using the commit-msg hook, AI will suggest grammar and clarity improvements automatically.
+The commit body uses structured sections:
+```
+[BSP][CAMERA] fix null pointer crash in preview callback
+
+[IMPACT PROJECTS]
+camera-hal, framework/av
+
+[DESCRIPTION]
+BUG-ID: CAM-1234
+SYMPTOM: Camera preview crashes on boot
+ROOT CAUSE: Null pointer in frame callback when buffer is not allocated
+SOLUTION: Add null check before accessing buffer pointer
+
+modified:
+hardware/camera/hal/preview.cpp
+hardware/camera/hal/buffer.h
+
+[TEST]
+Boot device, open camera, verify preview starts without crash
+```
+
+When using the prepare-commit-msg hook with TTY, an interactive Q&A guides you through filling each section. AI polishes your summary and description for clarity.
 
 ## Custom Review Rules
 
@@ -200,8 +226,12 @@ ai-review config get <section> <key>
 | `review.include_extensions` | `c,cpp,h,hpp,java` | File extensions to review |
 | `review.custom_rules` | (none) | Additional review rules in natural language |
 | `review.max_diff_lines` | `2000` | Max diff lines sent to LLM (truncated if exceeded) |
-| `commit.project_id` | (none) | Auto-prefix generated commit messages with `[PROJECT-ID]` |
+| `review.max_context_lines` | `5000` | Max lines of full file context sent alongside diff |
+| `commit.default_category` | (none) | Default category for interactive Q&A (BSP/CP/AP) |
+| `commit.components` | (none) | Comma-separated custom component list for Q&A |
 | `<provider>.timeout` | `120` | HTTP timeout in seconds per provider |
+
+Note: `commit.project_id` is deprecated. Use `commit.default_category` instead.
 
 ## Severity Levels
 

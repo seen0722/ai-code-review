@@ -144,13 +144,14 @@ git commit
   |
   +-- 檢查 ai-review.enabled -- 未啟用則跳過
   |
-  +-- [Hook 1] pre-commit: AI Code Review
+  +-- [Hook 1] pre-commit: AI Code Review（含完整檔案內容上下文）
   |   PASS  無嚴重問題 -- 繼續
   |   BLOCK 發現 critical/error -- 擋下 commit
   |
-  +-- [Hook 2] prepare-commit-msg: 自動產生 Commit Message
-  |   根據 staged diff 用 AI 產生描述，自動前綴 [PROJECT-ID]
-  |   填入編輯器供確認/修改（使用 -m 時跳過）
+  +-- [Hook 2] prepare-commit-msg: 互動式 Q&A 產生 Commit Message
+  |   TTY: 引導式 Q&A 填寫各欄位 + AI 潤飾
+  |   非 TTY: AI 從 diff 自動產生描述
+  |   使用 -m 時跳過
   |
   +-- [Hook 3] commit-msg: 格式檢查 + AI 英文優化
   |   PASS  格式正確 -- AI 改善英文描述（自動接受）
@@ -177,20 +178,46 @@ git push origin main
 
 #### 格式要求
 
-所有 commit message 必須符合 `[PROJECT-NUMBER] description` 格式：
+所有 commit message 必須符合 `[CATEGORY][COMPONENT] summary` 格式：
+
+- **Category**: BSP, CP, AP
+- **Component**: 大寫識別符（如 CAMERA, AUDIO, DISPLAY）
+- **選用前綴**: `[UPDATE]` 用於後續更新的 commit
 
 ```
-[BSP-456] fix camera HAL null pointer crash
-[CAM-123] add frame rate control for preview
-[AUDIO-78] resolve mixer path leak on close
+[BSP][CAMERA] fix null pointer crash in preview callback
+[AP][NAL] add installation manager retry logic
+[UPDATE][CP][AUDIO] update mixer path for headset detection
+```
+
+Commit body 使用結構化區段：
+
+```
+[BSP][CAMERA] fix null pointer crash in preview callback
+
+[IMPACT PROJECTS]
+camera-hal, framework/av
+
+[DESCRIPTION]
+BUG-ID: CAM-1234
+SYMPTOM: Camera preview crashes on boot
+ROOT CAUSE: Null pointer in frame callback when buffer is not allocated
+SOLUTION: Add null check before accessing buffer pointer
+
+modified:
+hardware/camera/hal/preview.cpp
+hardware/camera/hal/buffer.h
+
+[TEST]
+Boot device, open camera, verify preview starts without crash
 ```
 
 不符合格式的 commit 會被 commit-msg hook 直接擋下：
 
 ```
-fix bug                          -- 擋下：缺少 [PROJECT-NUMBER]
-[bsp-456] fix crash              -- 擋下：專案代碼須為大寫
-update driver                    -- 擋下：缺少 [PROJECT-NUMBER]
+fix bug                          -- 擋下：缺少 [CATEGORY][COMPONENT]
+[bsp][camera] fix crash          -- 擋下：category 和 component 須為大寫
+update driver                    -- 擋下：缺少 [CATEGORY][COMPONENT]
 ```
 
 #### AI 英文優化
@@ -223,16 +250,26 @@ ai-review check-commit --auto-accept .git/COMMIT_EDITMSG
 
 ### 自動產生 Commit Message
 
-prepare-commit-msg hook 會根據 staged diff 用 AI 自動產生 commit message：
+prepare-commit-msg hook 會在 `git commit`（不帶 `-m`）時觸發互動式 Q&A 流程：
 
-- 使用 `git commit`（不帶 `-m`）時觸發
-- 使用 `-m` 提供 message 時自動跳過
-- 若設定 `commit.project_id`，自動前綴 `[PROJECT-ID]`
+1. 選擇 new/update
+2. 選擇 feature/bugfix
+3. 選擇 category（BSP/CP/AP，可設定預設值）
+4. 選擇 component（從預設或自訂清單選取，或輸入自訂名稱）
+5. 輸入 summary（一行描述）
+6. 輸入 impact projects
+7. 依據 commit type 輸入 description 或 BUG-ID/SYMPTOM/ROOT CAUSE/SOLUTION
+8. 輸入 test description
 
-設定專案 ID：
+Q&A 完成後，AI 會自動潤飾 summary 和 description（根據 diff 調整用詞），然後顯示完整 commit message 供確認。
+
+非 TTY 環境（如 CI/CD）會退回舊行為：用 AI 從 diff 自動產生描述。
+
+設定預設 category 和自訂 component 清單：
 
 ```bash
-ai-review config set commit project_id "BSP-456"
+ai-review config set commit default_category "BSP"
+ai-review config set commit components "CAMERA,AUDIO,DISPLAY,SENSOR,POWER"
 ```
 
 手動產生 commit message：
@@ -306,10 +343,12 @@ timeout = 120              # HTTP timeout（秒），預設 120
 [review]
 include_extensions = "c,cpp,h,hpp,java"
 max_diff_lines = 2000      # diff 行數上限，超過會截斷，預設 2000
+max_context_lines = 5000   # 完整檔案上下文行數上限，預設 5000
 custom_rules = "Also check for integer overflow and use-after-free"
 
 [commit]
-project_id = "BSP-456"     # 自動產生 commit message 時前綴 [PROJECT-ID]
+default_category = "BSP"   # 互動式 Q&A 預設 category（BSP/CP/AP）
+components = "CAMERA,AUDIO,DISPLAY,SENSOR,POWER"  # 自訂 component 清單（選用）
 
 [openai]
 api_key_env = "OPENAI_API_KEY"

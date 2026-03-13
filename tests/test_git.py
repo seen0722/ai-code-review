@@ -1,8 +1,17 @@
 import subprocess
+from unittest.mock import patch, call
 
 import pytest
 
-from ai_code_review.git import get_staged_diff, get_unstaged_diff, get_commit_diff, get_push_diff, GitError
+from ai_code_review.git import (
+    get_staged_diff,
+    get_unstaged_diff,
+    get_commit_diff,
+    get_push_diff,
+    get_staged_file_contents,
+    get_commit_file_contents,
+    GitError,
+)
 
 
 @pytest.fixture
@@ -181,3 +190,125 @@ class TestGitError:
         monkeypatch.chdir(tmp_path)
         with pytest.raises(GitError):
             get_staged_diff()
+
+
+class TestGetStagedFileContents:
+    def test_returns_file_contents_for_staged_files(self):
+        """Returns dict of filepath -> content for staged files."""
+        def mock_run_git(*args):
+            if args == ("diff", "--cached", "--name-only"):
+                return "src/main.c\nsrc/util.h\n"
+            if args == ("show", ":src/main.c"):
+                return "int main() { return 0; }\n"
+            if args == ("show", ":src/util.h"):
+                return "void util();\n"
+            raise AssertionError(f"Unexpected _run_git call: {args}")
+
+        with patch("ai_code_review.git._run_git", side_effect=mock_run_git):
+            result = get_staged_file_contents()
+
+        assert result == {
+            "src/main.c": "int main() { return 0; }\n",
+            "src/util.h": "void util();\n",
+        }
+
+    def test_filters_by_extension(self):
+        """Only returns files matching the given extensions."""
+        def mock_run_git(*args):
+            if args == ("diff", "--cached", "--name-only"):
+                return "main.c\nREADME.md\nutil.h\n"
+            if args == ("show", ":main.c"):
+                return "int main() {}\n"
+            if args == ("show", ":util.h"):
+                return "void util();\n"
+            raise AssertionError(f"Unexpected _run_git call: {args}")
+
+        with patch("ai_code_review.git._run_git", side_effect=mock_run_git):
+            result = get_staged_file_contents(extensions=["c", "h"])
+
+        assert "main.c" in result
+        assert "util.h" in result
+        assert "README.md" not in result
+
+    def test_returns_empty_when_no_staged_files(self):
+        """Returns empty dict when nothing is staged."""
+        with patch("ai_code_review.git._run_git", return_value=""):
+            result = get_staged_file_contents()
+
+        assert result == {}
+
+    def test_respects_max_lines(self):
+        """Stops adding files after max_lines exceeded, but always includes at least one."""
+        big_content = "line\n" * 100  # 100 lines per file
+
+        def mock_run_git(*args):
+            if args == ("diff", "--cached", "--name-only"):
+                return "a.c\nb.c\nc.c\n"
+            if args[0] == "show":
+                return big_content
+            raise AssertionError(f"Unexpected _run_git call: {args}")
+
+        with patch("ai_code_review.git._run_git", side_effect=mock_run_git):
+            # max_lines=100 — after a.c (100 lines) total equals limit, stops before b.c
+            result = get_staged_file_contents(max_lines=100)
+
+        assert "a.c" in result
+        assert "b.c" not in result
+        assert "c.c" not in result
+
+    def test_always_includes_at_least_one_file(self):
+        """Even if first file exceeds max_lines, it is still included."""
+        big_content = "line\n" * 1000  # 1000 lines
+
+        def mock_run_git(*args):
+            if args == ("diff", "--cached", "--name-only"):
+                return "big.c\nsmall.c\n"
+            if args == ("show", ":big.c"):
+                return big_content
+            if args == ("show", ":small.c"):
+                return "int x;\n"
+            raise AssertionError(f"Unexpected _run_git call: {args}")
+
+        with patch("ai_code_review.git._run_git", side_effect=mock_run_git):
+            result = get_staged_file_contents(max_lines=50)
+
+        assert "big.c" in result
+        assert "small.c" not in result
+
+    def test_get_commit_file_contents(self):
+        """Reads files at a specific commit SHA via git show sha:filepath."""
+        sha = "abc1234"
+
+        def mock_run_git(*args):
+            if args == ("diff-tree", "--no-commit-id", "-r", "--name-only", sha):
+                return "driver/foo.c\ndriver/bar.h\n"
+            if args == ("show", f"{sha}:driver/foo.c"):
+                return "static int foo() {}\n"
+            if args == ("show", f"{sha}:driver/bar.h"):
+                return "int bar;\n"
+            raise AssertionError(f"Unexpected _run_git call: {args}")
+
+        with patch("ai_code_review.git._run_git", side_effect=mock_run_git):
+            result = get_commit_file_contents(sha)
+
+        assert result == {
+            "driver/foo.c": "static int foo() {}\n",
+            "driver/bar.h": "int bar;\n",
+        }
+
+    def test_get_commit_file_contents_filters_by_extension(self):
+        """get_commit_file_contents respects extension filter."""
+        sha = "deadbeef"
+
+        def mock_run_git(*args):
+            if args == ("diff-tree", "--no-commit-id", "-r", "--name-only", sha):
+                return "main.c\nnotes.txt\n"
+            if args == ("show", f"{sha}:main.c"):
+                return "int main() {}\n"
+            raise AssertionError(f"Unexpected _run_git call: {args}")
+
+        with patch("ai_code_review.git._run_git", side_effect=mock_run_git):
+            result = get_commit_file_contents(sha, extensions=["c"])
+
+        assert "main.c" in result
+        assert "notes.txt" not in result
