@@ -55,6 +55,18 @@ class Config:
             return cli_provider
         return self.get("provider", "default")
 
+    def check_deprecated_keys(self) -> str | None:
+        """Check for deprecated config keys and return warning message."""
+        project_id = self.get("commit", "project_id")
+        if project_id:
+            return (
+                f"Warning: 'commit.project_id' is deprecated. "
+                f"Use 'commit.default_category' instead.\n"
+                f"  Run: ai-review config set commit default_category {project_id}\n"
+                f"  Then: ai-review config set commit project_id \"\""
+            )
+        return None
+
     def resolve_token(self, provider: str) -> str | None:
         env_key_name = _TOKEN_ENV_KEYS.get(provider, "api_key_env")
         env_var = self.get(provider, env_key_name)
