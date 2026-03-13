@@ -61,10 +61,13 @@ class TestReviewCommand:
 
     @patch("ai_code_review.cli.Config")
     @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_staged_file_contents")
     @patch("ai_code_review.cli.get_staged_diff")
-    def test_passes_custom_rules_from_config(self, mock_diff, mock_build, mock_config_cls, runner):
+    def test_passes_custom_rules_from_config(self, mock_diff, mock_file_contents, mock_build, mock_config_cls, runner):
         mock_diff.return_value = "some diff"
+        mock_file_contents.return_value = {}
         mock_config = MagicMock()
+        mock_config.check_deprecated_keys.return_value = None
         mock_config.get.side_effect = lambda s, k: {
             ("review", "include_extensions"): "c,cpp",
             ("review", "custom_rules"): "check integer overflow",
@@ -82,10 +85,13 @@ class TestReviewCommand:
 
     @patch("ai_code_review.cli.Config")
     @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_staged_file_contents")
     @patch("ai_code_review.cli.get_staged_diff")
-    def test_no_custom_rules_uses_default_prompt(self, mock_diff, mock_build, mock_config_cls, runner):
+    def test_no_custom_rules_uses_default_prompt(self, mock_diff, mock_file_contents, mock_build, mock_config_cls, runner):
         mock_diff.return_value = "some diff"
+        mock_file_contents.return_value = {}
         mock_config = MagicMock()
+        mock_config.check_deprecated_keys.return_value = None
         mock_config.get.return_value = None
         mock_config.resolve_provider.return_value = "ollama"
         mock_config_cls.return_value = mock_config
@@ -101,7 +107,7 @@ class TestReviewCommand:
 
 class TestCheckCommitCommand:
     def test_valid_message(self, runner):
-        result = runner.invoke(main, ["check-commit"], input="[BSP-123] fix bug\n")
+        result = runner.invoke(main, ["check-commit"], input="[BSP][CAMERA] fix bug\n")
         assert result.exit_code == 0
 
     def test_invalid_message(self, runner):
@@ -121,13 +127,16 @@ class TestConfigCommand:
 
 class TestDiffTruncation:
     @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_staged_file_contents")
     @patch("ai_code_review.cli.get_staged_diff")
     @patch("ai_code_review.cli.Config")
-    def test_truncates_large_diff(self, mock_config_cls, mock_diff, mock_build, runner):
+    def test_truncates_large_diff(self, mock_config_cls, mock_diff, mock_file_contents, mock_build, runner):
         # Create a diff with 3000 lines
         large_diff = "\n".join(f"line {i}" for i in range(3000))
         mock_diff.return_value = large_diff
+        mock_file_contents.return_value = {}
         mock_config = MagicMock()
+        mock_config.check_deprecated_keys.return_value = None
         mock_config.get.side_effect = lambda s, k: {
             ("review", "include_extensions"): None,
             ("review", "custom_rules"): None,
@@ -146,12 +155,15 @@ class TestDiffTruncation:
         assert "Warning" in result.output or "truncated" in result.output.lower()
 
     @patch("ai_code_review.cli._build_provider")
+    @patch("ai_code_review.cli.get_staged_file_contents")
     @patch("ai_code_review.cli.get_staged_diff")
     @patch("ai_code_review.cli.Config")
-    def test_small_diff_not_truncated(self, mock_config_cls, mock_diff, mock_build, runner):
+    def test_small_diff_not_truncated(self, mock_config_cls, mock_diff, mock_file_contents, mock_build, runner):
         small_diff = "\n".join(f"line {i}" for i in range(100))
         mock_diff.return_value = small_diff
+        mock_file_contents.return_value = {}
         mock_config = MagicMock()
+        mock_config.check_deprecated_keys.return_value = None
         mock_config.get.return_value = None
         mock_config.resolve_provider.return_value = "ollama"
         mock_config_cls.return_value = mock_config
@@ -423,7 +435,7 @@ class TestGracefulCheckCommit:
         mock_provider.improve_commit_msg.side_effect = ProviderError("timeout")
         mock_build.return_value = mock_provider
         msg_file = tmp_path / "COMMIT_EDITMSG"
-        msg_file.write_text("[BSP-123] fix something")
+        msg_file.write_text("[BSP][CAMERA] fix something")
         result = runner.invoke(main, ["--graceful", "check-commit", str(msg_file)])
         assert result.exit_code == 0
         assert "warning" in result.output.lower()
@@ -437,7 +449,7 @@ class TestGracefulCheckCommit:
         mock_provider.improve_commit_msg.side_effect = ProviderError("timeout")
         mock_build.return_value = mock_provider
         msg_file = tmp_path / "COMMIT_EDITMSG"
-        msg_file.write_text("[BSP-123] fix something")
+        msg_file.write_text("[BSP][CAMERA] fix something")
         result = runner.invoke(main, ["check-commit", str(msg_file)])
         assert result.exit_code == 0
 
@@ -465,8 +477,9 @@ class TestGenerateCommitMsgCommand:
         mock_provider.generate_commit_msg.return_value = "fix null pointer in camera"
         mock_build.return_value = mock_provider
         mock_config = MagicMock()
+        mock_config.check_deprecated_keys.return_value = None
         mock_config.get.side_effect = lambda s, k: {
-            ("commit", "project_id"): "BSP-456",
+            ("commit", "default_category"): "BSP",
             ("review", "include_extensions"): None,
         }.get((s, k))
         mock_config.resolve_provider.return_value = "ollama"
@@ -476,7 +489,7 @@ class TestGenerateCommitMsgCommand:
         result = runner.invoke(main, ["generate-commit-msg", str(msg_file)])
         assert result.exit_code == 0
         content = msg_file.read_text()
-        assert content.startswith("[BSP-456] ")
+        assert content.startswith("[BSP][MISC] ")
         assert "fix null pointer in camera" in content
 
     def test_skips_on_merge_source(self, runner, tmp_path):
@@ -574,6 +587,7 @@ class TestHybridContext:
         mock_diff.return_value = "some diff"
         mock_file_contents.return_value = {"main.c": "int main() {}"}
         mock_config = MagicMock()
+        mock_config.check_deprecated_keys.return_value = None
         mock_config.get.return_value = None
         mock_config.resolve_provider.return_value = "ollama"
         mock_config_cls.return_value = mock_config
@@ -598,6 +612,7 @@ class TestHybridContext:
         mock_diff.return_value = "some diff"
         mock_file_contents.side_effect = GitError("git error reading files")
         mock_config = MagicMock()
+        mock_config.check_deprecated_keys.return_value = None
         mock_config.get.return_value = None
         mock_config.resolve_provider.return_value = "ollama"
         mock_config_cls.return_value = mock_config

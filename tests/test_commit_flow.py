@@ -17,13 +17,13 @@ class TestCommitMsgImprovement:
     @patch("ai_code_review.cli.get_staged_diff")
     def test_suggests_improved_message(self, mock_diff, mock_build, runner, tmp_path):
         mock_provider = MagicMock()
-        mock_provider.improve_commit_msg.return_value = "[BSP-456] fix camera HAL crash during boot sequence"
+        mock_provider.improve_commit_msg.return_value = "[BSP][CAMERA] fix camera HAL crash during boot sequence"
         mock_provider.health_check.return_value = (True, "Connected")
         mock_build.return_value = mock_provider
         mock_diff.return_value = "some diff content"
 
         msg_file = tmp_path / "COMMIT_EDITMSG"
-        msg_file.write_text("[BSP-456] fix camera HAL crash when boot")
+        msg_file.write_text("[BSP][CAMERA] fix camera HAL crash when boot")
 
         # Simulate user accepting the suggestion
         result = runner.invoke(main, ["check-commit", str(msg_file)], input="a\n")
@@ -34,18 +34,18 @@ class TestCommitMsgImprovement:
     @patch("ai_code_review.cli.get_staged_diff")
     def test_skip_keeps_original(self, mock_diff, mock_build, runner, tmp_path):
         mock_provider = MagicMock()
-        mock_provider.improve_commit_msg.return_value = "[BSP-456] improved"
+        mock_provider.improve_commit_msg.return_value = "[BSP][CAMERA] improved"
         mock_provider.health_check.return_value = (True, "Connected")
         mock_build.return_value = mock_provider
         mock_diff.return_value = "some diff"
 
         msg_file = tmp_path / "COMMIT_EDITMSG"
-        msg_file.write_text("[BSP-456] original message")
+        msg_file.write_text("[BSP][CAMERA] original message")
 
         result = runner.invoke(main, ["check-commit", str(msg_file)], input="s\n")
         assert result.exit_code == 0
         # File should remain unchanged
-        assert msg_file.read_text() == "[BSP-456] original message"
+        assert msg_file.read_text() == "[BSP][CAMERA] original message"
 
     def test_invalid_format_blocks_before_ai(self, runner, tmp_path):
         msg_file = tmp_path / "COMMIT_EDITMSG"
