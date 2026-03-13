@@ -101,16 +101,20 @@ def run_interactive_qa(
     if default_category:
         category_kwargs["default"] = default_category
     category = click.prompt(
-        f"Category? ({'/'.join(CATEGORIES)})",
+        f"Category?",
+        type=click.Choice(CATEGORIES, case_sensitive=False),
         **category_kwargs,
     )
+    category = category.upper()
 
     # 4. Component — show numbered list + 0 for custom
     comp_display = "\n".join(f"  {i + 1}. {c}" for i, c in enumerate(comp_list))
-    comp_index_str = click.prompt(
+    max_index = len(comp_list)
+    comp_index_raw = click.prompt(
         f"Component?\n{comp_display}\n  0. Custom\nEnter number (or 0 for custom)",
+        type=click.IntRange(0, max_index),
     )
-    comp_index = int(comp_index_str)
+    comp_index = int(comp_index_raw)
     if comp_index == 0:
         component = click.prompt("Custom component name (uppercase)")
         component = component.upper()
