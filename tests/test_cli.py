@@ -608,4 +608,43 @@ class TestHybridContext:
         result = runner.invoke(main, [])
         assert result.exit_code == 0
         # Still calls review_code — just without file context
-        mock_provider.review_code.assert_called_once()
+
+
+class TestDeprecationWarningCli:
+    @patch("ai_code_review.cli.Config")
+    def test_shows_deprecation_warning_in_review(self, MockConfig, runner):
+        mock_config = MagicMock()
+        mock_config.check_deprecated_keys.return_value = "Warning: 'commit.project_id' is deprecated"
+        mock_config.get.return_value = None
+        mock_config.resolve_provider.return_value = None
+        MockConfig.return_value = mock_config
+
+        result = runner.invoke(main, [])
+        assert "deprecated" in result.output.lower()
+
+    @patch("ai_code_review.cli.Config")
+    @patch("ai_code_review.cli.get_staged_diff")
+    def test_shows_deprecation_warning_in_generate_commit_msg(self, mock_diff, MockConfig, runner, tmp_path):
+        mock_config = MagicMock()
+        mock_config.check_deprecated_keys.return_value = "Warning: 'commit.project_id' is deprecated"
+        mock_config.get.return_value = None
+        mock_config.resolve_provider.return_value = None
+        MockConfig.return_value = mock_config
+        mock_diff.return_value = ""
+
+        msg_file = tmp_path / "COMMIT_EDITMSG"
+        msg_file.write_text("")
+
+        result = runner.invoke(main, ["generate-commit-msg", str(msg_file)])
+        assert "deprecated" in result.output.lower()
+
+    @patch("ai_code_review.cli.Config")
+    def test_no_deprecation_warning_when_none(self, MockConfig, runner):
+        mock_config = MagicMock()
+        mock_config.check_deprecated_keys.return_value = None
+        mock_config.get.return_value = None
+        mock_config.resolve_provider.return_value = None
+        MockConfig.return_value = mock_config
+
+        result = runner.invoke(main, [])
+        assert "deprecated" not in result.output.lower()

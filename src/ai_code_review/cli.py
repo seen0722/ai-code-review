@@ -108,6 +108,9 @@ def main(ctx: click.Context, cli_provider: str | None, cli_model: str | None, ou
 
 def _review(ctx: click.Context) -> None:
     config = Config()
+    deprecation = config.check_deprecated_keys()
+    if deprecation:
+        console.print(f"[yellow]{rich_escape(deprecation)}[/]")
     cli_provider = ctx.obj["cli_provider"]
     cli_model = ctx.obj["cli_model"]
     output_format = ctx.obj["output_format"]
@@ -268,6 +271,9 @@ def generate_commit_msg_cmd(ctx: click.Context, message_file: str, source: str, 
 
     graceful = ctx.obj.get("graceful", False) if ctx.obj else False
     config = Config()
+    deprecation = config.check_deprecated_keys()
+    if deprecation:
+        console.print(f"[yellow]{rich_escape(deprecation)}[/]")
 
     ext_raw = config.get("review", "include_extensions")
     if ext_raw is None:
