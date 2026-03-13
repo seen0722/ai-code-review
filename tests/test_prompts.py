@@ -76,6 +76,14 @@ class TestReviewPromptWithContext:
         assert prompt == get_review_prompt()
 
 
+class TestCommitImprovePromptNewFormat:
+    def test_references_new_prefix_format(self):
+        from ai_code_review.prompts import get_commit_improve_prompt
+        prompt = get_commit_improve_prompt("[BSP][CAMERA] fix crash", "diff content")
+        assert "prefix tags" in prompt or "[UPDATE][BSP][CAMERA]" in prompt
+        assert "[PROJECT-NUMBER]" not in prompt
+
+
 class TestGenerateCommitPrompt:
     def test_prompt_contains_diff(self):
         prompt = get_generate_commit_prompt("+ int x = 0;")

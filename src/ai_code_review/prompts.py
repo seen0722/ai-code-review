@@ -28,8 +28,8 @@ _COMMIT_IMPROVE_PROMPT = """\
 You are a technical writing assistant. Given the original commit message and the git diff:
 1. Fix English grammar errors
 2. Make the description accurately reflect the code changes
-3. Keep it under 72 characters total
-4. Preserve the [PROJECT-NUMBER] prefix exactly as-is
+3. Keep the first line under 72 characters total
+4. Preserve the prefix tags exactly as-is (e.g., [UPDATE][BSP][CAMERA])
 
 Respond with only the improved commit message. No explanation, no quotes.
 
