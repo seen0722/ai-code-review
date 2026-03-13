@@ -1,4 +1,4 @@
-from ai_code_review.prompts import get_review_prompt, get_commit_improve_prompt, get_generate_commit_prompt
+from ai_code_review.prompts import get_review_prompt, get_commit_improve_prompt, get_generate_commit_prompt, get_review_prompt_with_context
 
 
 class TestReviewPrompt:
@@ -49,6 +49,31 @@ class TestCommitImprovePrompt:
     def test_contains_diff(self):
         prompt = get_commit_improve_prompt("[BSP-1] fix bug", "some diff here")
         assert "some diff here" in prompt
+
+
+class TestReviewPromptWithContext:
+    def test_includes_cot_guidance(self):
+        prompt = get_review_prompt_with_context({"foo.c": "int main() {}"})
+        assert "follow these steps" in prompt
+        assert "confident it is a real problem" in prompt
+
+    def test_includes_file_contents(self):
+        prompt = get_review_prompt_with_context({"driver/foo.c": "int x = 0;"})
+        assert "driver/foo.c" in prompt
+        assert "int x = 0;" in prompt
+
+    def test_includes_custom_rules(self):
+        prompt = get_review_prompt_with_context(
+            {"foo.c": "int x;"}, custom_rules="check integer overflow"
+        )
+        assert "Additional rules:" in prompt
+        assert "check integer overflow" in prompt
+
+    def test_empty_file_contents_returns_basic_prompt(self):
+        prompt = get_review_prompt_with_context({})
+        assert "follow these steps" not in prompt
+        assert "Full file context" not in prompt
+        assert prompt == get_review_prompt()
 
 
 class TestGenerateCommitPrompt:
